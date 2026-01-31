@@ -5,6 +5,7 @@ import { AccountsModule } from './cai-dat/cai-dat.module';
 import { YouthUnionModule } from './bch-doan/bch-doan.module';
 import { OrganizationsModule } from './tap-the/tap-the.module';
 import { DocumentsModule } from './tai-lieu/tai-lieu.module';
+import { ProgramsModule } from './chuong-trinh/chuong-trinh.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { DocumentsModule } from './tai-lieu/tai-lieu.module';
     YouthUnionModule,
     OrganizationsModule,
     DocumentsModule,
+    ProgramsModule,
   ],
 })
 export class AppModule {}
