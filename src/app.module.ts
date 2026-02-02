@@ -6,6 +6,8 @@ import { YouthUnionModule } from './bch-doan/bch-doan.module';
 import { OrganizationsModule } from './tap-the/tap-the.module';
 import { DocumentsModule } from './tai-lieu/tai-lieu.module';
 import { ProgramsModule } from './chuong-trinh/chuong-trinh.module';
+import { AnnouncementsModule } from './thong-bao/thong-bao.module';
+import { PartyMembersModule } from './dang/dang.module';
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { ProgramsModule } from './chuong-trinh/chuong-trinh.module';
     OrganizationsModule,
     DocumentsModule,
     ProgramsModule,
+    AnnouncementsModule,
+    PartyMembersModule,
   ],
 })
 export class AppModule {}
