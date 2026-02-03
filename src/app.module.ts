@@ -8,6 +8,9 @@ import { DocumentsModule } from './tai-lieu/tai-lieu.module';
 import { ProgramsModule } from './chuong-trinh/chuong-trinh.module';
 import { AnnouncementsModule } from './thong-bao/thong-bao.module';
 import { PartyMembersModule } from './dang/dang.module';
+import { PerformanceModule } from './bang-diem/bang-diem.module';
+import { SolutionModelsModule } from './MHGP/MHGP.module';
+import { YouthProjectsModule } from './CTTN/CTTN.module';
 
 @Module({
   imports: [
@@ -23,6 +26,9 @@ import { PartyMembersModule } from './dang/dang.module';
     ProgramsModule,
     AnnouncementsModule,
     PartyMembersModule,
+    PerformanceModule,
+    SolutionModelsModule,
+    YouthProjectsModule,
   ],
 })
 export class AppModule {}
