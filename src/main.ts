@@ -11,10 +11,17 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: [
+      'http://localhost:3000', 
+      process.env.FRONTEND_URL
+    ].filter(Boolean), 
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
 
-  await app.listen(process.env.PORT || 3001);
+  const port = process.env.PORT || 3001;
+  await app.listen(port, '0.0.0.0');
+  
+  console.log(`Application is running on: ${await app.getUrl()}`);
 }
 bootstrap();
