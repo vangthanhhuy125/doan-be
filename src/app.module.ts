@@ -1,16 +1,16 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { NhanSuModule } from './nhan-su/nhan-su.module';
-import { AccountsModule } from './cai-dat/cai-dat.module';
-import { YouthUnionModule } from './bch-doan/bch-doan.module';
-import { OrganizationsModule } from './tap-the/tap-the.module';
-import { DocumentsModule } from './tai-lieu/tai-lieu.module';
-import { ProgramsModule } from './chuong-trinh/chuong-trinh.module';
-import { AnnouncementsModule } from './thong-bao/thong-bao.module';
-import { PartyMembersModule } from './dang/dang.module';
-import { PerformanceModule } from './bang-diem/bang-diem.module';
-import { SolutionModelsModule } from './MHGP/MHGP.module';
-import { YouthProjectsModule } from './CTTN/CTTN.module';
+import { NhanSuModule } from './human-resources/human-resources.module';
+import { AccountsModule } from './settings/settings.module';
+import { YouthUnionModule } from './faculty-yec/faculty-yec.module';
+import { OrganizationsModule } from './collective/collective.module';
+import { DocumentsModule } from './document/document.module';
+import { ProgramsModule } from './annual-programs/programs.module';
+import { AnnouncementsModule } from './notification/notification.module';
+import { PartyMembersModule } from './party-work/party-work.module';
+import { PerformanceModule } from './scorecards/scorecards.module';
+import { SolutionModelsModule } from './solution-model/solution-model.module';
+import { YouthProjectsModule } from './youth-project/youth-project.module';
 
 @Module({
   imports: [
