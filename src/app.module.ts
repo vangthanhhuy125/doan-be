@@ -11,6 +11,7 @@ import { PartyMembersModule } from './party-work/party-work.module';
 import { PerformanceModule } from './scorecards/scorecards.module';
 import { SolutionModelsModule } from './solution-model/solution-model.module';
 import { YouthProjectsModule } from './youth-project/youth-project.module';
+import { BannerConfigModule } from './banner-config/banner-config.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { YouthProjectsModule } from './youth-project/youth-project.module';
     PerformanceModule,
     SolutionModelsModule,
     YouthProjectsModule,
+    BannerConfigModule,
   ],
 })
 export class AppModule {}

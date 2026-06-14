@@ -12,7 +12,6 @@ export class YouthUnionService {
       
       return await db.collection(this.collectionName).aggregate([
         {
-          // Chuyển string user_id sang ObjectId để so khớp
           $addFields: {
             user_id_obj: {
               $convert: {
@@ -25,7 +24,6 @@ export class YouthUnionService {
           }
         },
         {
-          // QUAN TRỌNG: from phải là 'Users' (khớp với hình bạn chụp)
           $lookup: {
             from: 'Users', 
             localField: 'user_id_obj',
@@ -46,7 +44,6 @@ export class YouthUnionService {
             isBanThuongVu: 1,
             order: 1,
             user_id: 1,
-            // Nếu có dữ liệu trong bảng Users thì lấy, không thì dùng dữ liệu cũ trong YouthUnion
             full_name: { $ifNull: ['$user_info.full_name', '$full_name'] },
             avatar: { $ifNull: ['$user_info.image_url', '$avatar'] }
           }
