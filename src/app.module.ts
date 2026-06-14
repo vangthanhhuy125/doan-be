@@ -12,6 +12,7 @@ import { PerformanceModule } from './scorecards/scorecards.module';
 import { SolutionModelsModule } from './solution-model/solution-model.module';
 import { YouthProjectsModule } from './youth-project/youth-project.module';
 import { BannerConfigModule } from './banner-config/banner-config.module';
+import { SystemConfigModule } from './system-config/system-config.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { BannerConfigModule } from './banner-config/banner-config.module';
     SolutionModelsModule,
     YouthProjectsModule,
     BannerConfigModule,
+    SystemConfigModule,
   ],
 })
 export class AppModule {}
