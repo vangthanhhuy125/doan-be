@@ -4,6 +4,8 @@ export class UpdateSystemConfigDto {
   semesters?: string[];
   classBranches?: string[];
 
+  documents?: string[];
+  
   achievements?: {
     academicYear: string;
     image?: string; 

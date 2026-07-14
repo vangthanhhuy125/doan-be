@@ -29,7 +29,8 @@ export async function connectToDatabase() {
     console.log("✅ MongoDB Connected!");
     return { client, db };
   } catch (error) {
-    console.error("❌ Lỗi kết nối:", error.message);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Lỗi kết nối:", errorMessage);
     throw error;
   }
 }

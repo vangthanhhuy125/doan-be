@@ -19,6 +19,7 @@ export class SystemConfigService {
           semesters: [],
           classBranches: [],
           achievements: [], 
+          documents: [],
           contact: {
             address: '', email: '', fanpage: '',
             introduction: '', mission: '', vocation: '', structure: '', softwareIntro: ''
@@ -46,6 +47,7 @@ export class SystemConfigService {
               semesters: data.semesters || [],
               classBranches: data.classBranches || [],
               achievements: data.achievements || [], 
+              documents: data.documents || [],
               contact: {
                 address: data.contact?.address || '',
                 email: data.contact?.email || '',
