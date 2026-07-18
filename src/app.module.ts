@@ -13,6 +13,7 @@ import { SolutionModelsModule } from './solution-model/solution-model.module';
 import { YouthProjectsModule } from './youth-project/youth-project.module';
 import { BannerConfigModule } from './banner-config/banner-config.module';
 import { SystemConfigModule } from './system-config/system-config.module';
+import { LoginModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { SystemConfigModule } from './system-config/system-config.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    LoginModule,
     NhanSuModule,
     AccountsModule,
     YouthUnionModule,

@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, Delete, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, HttpCode, HttpStatus, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AnnouncementsService } from './notification.service';
 
 @Controller('announcements')
@@ -7,21 +8,25 @@ export class AnnouncementsController {
 
   @Get()
   async getAll() {
-    return await this.announcementsService.findAll();
+    return this.announcementsService.findAll();
   }
 
   @Post()
-  async create(@Body() body: any) {
-    return await this.announcementsService.create(body);
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file')) 
+  async create(@Body() body: any, @UploadedFile() file: Express.Multer.File) {
+    return this.announcementsService.create(body, file);
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() body: any) {
-    return await this.announcementsService.update(id, body);
+  @UseInterceptors(FileInterceptor('file'))
+  async update(@Param('id') id: string, @Body() body: any, @UploadedFile() file: Express.Multer.File) {
+    return this.announcementsService.update(id, body, file);
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string) {
-    return await this.announcementsService.remove(id);
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async delete(@Param('id') id: string) {
+    return this.announcementsService.delete(id);
   }
 }
