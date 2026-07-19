@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
+import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class AnnouncementsService {
@@ -103,9 +104,11 @@ export class AnnouncementsService {
 
   private async sendNotificationEmails(title: string, content: string, payload: any, file?: any) {
     try {
-      const token = process.env.MAILTRAP_TOKEN;
-      if (!token) {
-        console.error('Lỗi: Thiếu MAILTRAP_TOKEN trong biến môi trường');
+      const mailUser = process.env.MAIL_USER;
+      const mailPass = process.env.MAIL_PASS;
+
+      if (!mailUser || !mailPass) {
+        console.error('Lỗi: Thiếu cấu hình MAIL_USER hoặc MAIL_PASS trong biến môi trường');
         return;
       }
 
@@ -122,25 +125,38 @@ export class AnnouncementsService {
 
       const users = await db.collection('Users').find(query, { projection: { email: 1, student_id: 1 } }).toArray();
       
-      const toAddresses = users
+      const emailList = users
         .map(u => {
-          if (u.email) return { email: u.email };
-          return u.student_id ? { email: `${u.student_id}@gm.uit.edu.vn` } : null;
+          if (u.email) return u.email;
+          return u.student_id ? `${u.student_id}@gm.uit.edu.vn` : null;
         })
-        .filter((user): user is { email: string } => !!user);
+        .filter((email): email is string => !!email);
 
-      if (toAddresses.length === 0) {
+      if (emailList.length === 0) {
         console.log('Không có email nào thỏa mãn để gửi.');
         return;
       }
 
-      console.log(`Bắt đầu gửi mail tới ${toAddresses.length} địa chỉ qua Mailtrap API...`);
+      console.log(`Bắt đầu gửi mail thật tới ${emailList.length} địa chỉ qua Gmail SMTP...`);
+
+      // Cấu hình transporter kết nối trực tiếp đến Gmail
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true, // Dùng SSL cổng 465 để tăng tính bảo mật vượt qua bộ lọc Cloud
+        auth: {
+          user: mailUser,
+          pass: mailPass,
+        },
+        tls: {
+          rejectUnauthorized: false // Bỏ qua kiểm tra chứng chỉ local giúp vượt firewall của Render tốt hơn
+        }
+      });
 
       const attachments = file ? [{
         filename: file.originalname,
-        content: file.buffer.toString('base64'),
-        type: file.mimetype,
-        disposition: 'attachment'
+        content: Buffer.from(file.buffer, 'base64'),
       }] : [];
 
       const htmlContent = `
@@ -164,30 +180,19 @@ export class AnnouncementsService {
         </div>
       `;
 
-    const response = await fetch('https://sandbox.api.mailtrap.io/api/send/4154428', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: { email: 'hello@demomailtrap.co', name: 'Đoàn Khoa CNPM' },
-        to: toAddresses,
+      const mailOptions = {
+        from: `"Đoàn Khoa CNPM" <${mailUser}>`,
+        to: emailList.join(','), // Gửi đồng loạt cho danh sách mail
         subject: `[THÔNG BÁO] ${title}`,
         html: htmlContent,
         attachments: attachments
-      })
-    });
+      };
 
-      if (response.ok) {
-        const resData = await response.json();
-        console.log('Tiến trình gửi mail qua Mailtrap hoàn tất:', resData);
-      } else {
-        const errData = await response.text();
-        console.error('Lỗi từ Mailtrap API:', errData);
-      }
+      const info = await transporter.sendMail(mailOptions);
+      console.log('Tiến trình gửi mail thật hoàn tất. MessageId:', info.messageId);
+
     } catch (error) {
-      console.error('Lỗi hệ thống khi gọi Mailtrap:', error);
+      console.error('Lỗi hệ thống khi gửi Gmail thật:', error);
     }
   }
 }
