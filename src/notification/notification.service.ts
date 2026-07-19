@@ -1,11 +1,13 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
-import { MailerService } from '@nestjs-modules/mailer';
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
+import * as sgMail from '@sendgrid/mail';
 
 @Injectable()
 export class AnnouncementsService {
-  constructor(private readonly mailerService: MailerService) {}
+  constructor() {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');
+  }
 
   async findAll() {
     try {
@@ -39,7 +41,6 @@ export class AnnouncementsService {
       const result = await db.collection('Announcements').insertOne(newNotice);
       
       if (shouldSendEmail) {
-        // Đã thêm await để tiến trình gửi mail không bị ngắt rớt
         await this.sendNotificationEmails(payload.title, payload.content, payload, file);
       }
       
@@ -131,22 +132,24 @@ export class AnnouncementsService {
         return;
       }
 
-      console.log(`Bắt đầu gửi mail tới ${emailList.length} địa chỉ: `, emailList);
+      console.log(`Bắt đầu gửi mail tới ${emailList.length} địa chỉ qua API: `, emailList);
 
       const attachments = file ? [{
         filename: file.originalname,
-        content: file.buffer,
-        contentType: file.mimetype
+        content: file.buffer.toString('base64'),
+        type: file.mimetype,
+        disposition: 'attachment'
       }] : [];
 
-      const info = await this.mailerService.sendMail({
+      const msg = {
         to: emailList,
+        from: process.env.MAIL_USER || 'no-reply@gm.uit.edu.vn', 
         subject: `[THÔNG BÁO] ${title}`,
         attachments: attachments,
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
             <div style="background-color: #0054a5; padding: 24px; text-align: center; color: white;">
-              <h2 style="margin: 0; font-size: 18px; text-transform: uppercase; letter-spacing: 1px;">Đoàn TNCS Hồ Chí Minh khoa Công nghệ Phần mềm</h2>
+              <h2 style="margin: 0; font-size: 18px; text-transform: uppercase; letter-spacing: 1px;">Đoàn TNCS Hồ Chí Minh - Khoa CNPM</h2>
             </div>
             <div style="padding: 32px; background-color: #ffffff;">
               <p style="margin-top: 0; font-weight: bold;">Xin chào các đồng chí cán bộ Đoàn,</p>
@@ -163,11 +166,12 @@ export class AnnouncementsService {
             </div>
           </div>
         `,
-      });
+      };
 
-      console.log('Tiến trình gửi mail hoàn tất:', info.messageId);
+      const response = await sgMail.sendMultiple(msg);
+      console.log('Tiến trình gửi mail hoàn tất qua API:', response[0].statusCode);
     } catch (error) {
-      console.error('Lỗi tiến trình gửi mail:', error);
+      console.error('Lỗi tiến trình gửi mail qua API:', error);
     }
   }
 }
