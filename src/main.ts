@@ -19,9 +19,18 @@ async function bootstrap() {
     credentials: true,
   });
 
-  const port = process.env.PORT || 3001;
-  await app.listen(port, '0.0.0.0');
+  await app.listen(process.env.PORT || 3001, '0.0.0.0');
   
-  console.log(`Application is running on: ${await app.getUrl()}`);
+  return app.getHttpServer();
 }
-bootstrap();
+
+export const handler = async (req: any, res: any) => {
+  const server = await bootstrap();
+  return server(req, res);
+};
+
+if (process.env.NODE_ENV !== 'production') {
+  bootstrap().then(async () => {
+    console.log(`Application is running on local port: ${process.env.PORT || 3001}`);
+  });
+}
