@@ -1,15 +1,10 @@
-// notification.service.ts
-
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
-import sgMail from '@sendgrid/mail';
+import { Resend } from 'resend';
 
 @Injectable()
 export class AnnouncementsService {
-  constructor() {
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');
-  }
 
   async findAll() {
     try {
@@ -109,6 +104,13 @@ export class AnnouncementsService {
 
   private async sendNotificationEmails(title: string, content: string, payload: any, file?: any) {
     try {
+      const apiKey = process.env.RESEND_API_KEY;
+      if (!apiKey) {
+        console.error('Lỗi: Thiếu RESEND_API_KEY trong biến môi trường');
+        return;
+      }
+      
+      const resend = new Resend(apiKey);
       const { db } = await connectToDatabase();
       let query = {};
 
@@ -134,18 +136,16 @@ export class AnnouncementsService {
         return;
       }
 
-      console.log(`Bắt đầu gửi mail tới ${emailList.length} địa chỉ qua API: `, emailList);
+      console.log(`Bắt đầu gửi mail tới ${emailList.length} địa chỉ qua Resend API: `, emailList);
 
       const attachments = file ? [{
         filename: file.originalname,
-        content: file.buffer.toString('base64'),
-        type: file.mimetype,
-        disposition: 'attachment'
+        content: file.buffer, 
       }] : [];
 
-      const msg = {
+      const { data, error } = await resend.emails.send({
+        from: 'Đoàn Khoa CNPM <onboarding@resend.dev>',
         to: emailList,
-        from: process.env.MAIL_USER || 'no-reply@gm.uit.edu.vn', 
         subject: `[THÔNG BÁO] ${title}`,
         attachments: attachments,
         html: `
@@ -168,12 +168,15 @@ export class AnnouncementsService {
             </div>
           </div>
         `,
-      };
+      });
 
-      const response = await sgMail.sendMultiple(msg);
-      console.log('Tiến trình gửi mail hoàn tất qua API:', response[0].statusCode);
+      if (error) {
+        console.error('Lỗi trả về từ Resend API:', error);
+      } else {
+        console.log('Tiến trình gửi mail qua Resend hoàn tất. ID:', data?.id);
+      }
     } catch (error) {
-      console.error('Lỗi tiến trình gửi mail qua API:', error);
+      console.error('Lỗi hệ thống khi gọi Resend:', error);
     }
   }
 }
