@@ -1,7 +1,9 @@
+// notification.service.ts
+
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
-import * as sgMail from '@sendgrid/mail';
+import sgMail from '@sendgrid/mail';
 
 @Injectable()
 export class AnnouncementsService {
