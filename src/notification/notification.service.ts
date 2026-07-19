@@ -139,18 +139,17 @@ export class AnnouncementsService {
 
       console.log(`Bắt đầu gửi mail thật tới ${emailList.length} địa chỉ qua Gmail SMTP...`);
 
-      // Cấu hình transporter kết nối trực tiếp đến Gmail
       const transporter = nodemailer.createTransport({
         service: 'gmail',
         host: 'smtp.gmail.com',
         port: 465,
-        secure: true, // Dùng SSL cổng 465 để tăng tính bảo mật vượt qua bộ lọc Cloud
+        secure: true,
         auth: {
           user: mailUser,
           pass: mailPass,
         },
         tls: {
-          rejectUnauthorized: false // Bỏ qua kiểm tra chứng chỉ local giúp vượt firewall của Render tốt hơn
+          rejectUnauthorized: false
         }
       });
 
@@ -172,17 +171,16 @@ export class AnnouncementsService {
               <p style="white-space: pre-wrap; margin-bottom: 0; font-size: 14px; color: #475569;">${content}</p>
             </div>
             ${file ? `<p style="font-size: 13px; color: #1d92ff; font-weight: bold;">📎 Có tệp tin đính kèm gửi kèm email này.</p>` : ''}
-            <p>Vui lòng đăng nhập hệ thống nghiệp vụ để theo dõi và cập nhật chi tiết công tác nghiệp vụ.</p>
           </div>
           <div style="background-color: #f8fafc; padding: 16px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8;">
-            Đây là email tự động từ Hệ thống Nghiệp vụ công tác Đoàn khoa CNPM SE-UIT-VNUHCM.
+            Đây là email tự động từ Hệ thống Nghiệp vụ công tác Đoàn - Hội khoa Công nghệ Phần mềm.
           </div>
         </div>
       `;
 
       const mailOptions = {
-        from: `"Đoàn Khoa CNPM" <${mailUser}>`,
-        to: emailList.join(','), // Gửi đồng loạt cho danh sách mail
+        from: `"Đoàn khoa Công nghệ Phần mềm, Đoàn trường ĐH Công nghệ Thông tin (UIT-VNUHCM)" <${mailUser}>`,
+        to: emailList.join(','),
         subject: `[THÔNG BÁO] ${title}`,
         html: htmlContent,
         attachments: attachments
