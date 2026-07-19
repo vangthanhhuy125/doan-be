@@ -164,20 +164,20 @@ export class AnnouncementsService {
         </div>
       `;
 
-      const response = await fetch('https://send.api.mailtrap.io/api/send', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          from: { email: 'mailtrap@demomailtrap.com', name: 'Đoàn Khoa CNPM' },
-          to: toAddresses,
-          subject: `[THÔNG BÁO] ${title}`,
-          html: htmlContent,
-          attachments: attachments
-        })
-      });
+    const response = await fetch('https://sandbox.api.mailtrap.io/api/send/4154428', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: { email: 'hello@demomailtrap.co', name: 'Đoàn Khoa CNPM' },
+        to: toAddresses,
+        subject: `[THÔNG BÁO] ${title}`,
+        html: htmlContent,
+        attachments: attachments
+      })
+    });
 
       if (response.ok) {
         const resData = await response.json();
