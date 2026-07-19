@@ -179,7 +179,7 @@ export class AnnouncementsService {
       `;
 
       const mailOptions = {
-        from: `"Đoàn khoa Công nghệ Phần mềm, Đoàn trường ĐH Công nghệ Thông tin (UIT-VNUHCM)" <${mailUser}>`,
+        from: `"Đoàn khoa Công nghệ Phần mềm (ĐH CNTT - ĐHQG-TPHCM)" <${mailUser}>`,
         to: emailList.join(','),
         subject: `[THÔNG BÁO] ${title}`,
         html: htmlContent,
