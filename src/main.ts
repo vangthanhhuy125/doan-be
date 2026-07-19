@@ -22,10 +22,21 @@ async function bootstrap() {
       credentials: true,
     });
 
-    await app.init();
-    cachedApp = app.getHttpServer().getInstance();
+    if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+      const port = process.env.PORT || 3001;
+      await app.listen(port, '0.0.0.0');
+      console.log(`Application is running on local port: ${port}`);
+    } else {
+      await app.init();
+    }
+
+    cachedApp = app.getHttpAdapter().getInstance();
   }
   return cachedApp;
+}
+
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  bootstrap();
 }
 
 export default async (req: any, res: any) => {
