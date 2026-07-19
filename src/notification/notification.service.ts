@@ -1,7 +1,6 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
-import { Resend } from 'resend';
 
 @Injectable()
 export class AnnouncementsService {
@@ -104,13 +103,12 @@ export class AnnouncementsService {
 
   private async sendNotificationEmails(title: string, content: string, payload: any, file?: any) {
     try {
-      const apiKey = process.env.RESEND_API_KEY;
-      if (!apiKey) {
-        console.error('Lỗi: Thiếu RESEND_API_KEY trong biến môi trường');
+      const token = process.env.MAILTRAP_TOKEN;
+      if (!token) {
+        console.error('Lỗi: Thiếu MAILTRAP_TOKEN trong biến môi trường');
         return;
       }
-      
-      const resend = new Resend(apiKey);
+
       const { db } = await connectToDatabase();
       let query = {};
 
@@ -124,59 +122,72 @@ export class AnnouncementsService {
 
       const users = await db.collection('Users').find(query, { projection: { email: 1, student_id: 1 } }).toArray();
       
-      const emailList = users
+      const toAddresses = users
         .map(u => {
-          if (u.email) return u.email;
-          return u.student_id ? `${u.student_id}@gm.uit.edu.vn` : null;
+          if (u.email) return { email: u.email };
+          return u.student_id ? { email: `${u.student_id}@gm.uit.edu.vn` } : null;
         })
-        .filter((email): email is string => !!email);
+        .filter((user): user is { email: string } => !!user);
 
-      if (emailList.length === 0) {
+      if (toAddresses.length === 0) {
         console.log('Không có email nào thỏa mãn để gửi.');
         return;
       }
 
-      console.log(`Bắt đầu gửi mail tới ${emailList.length} địa chỉ qua Resend API: `, emailList);
+      console.log(`Bắt đầu gửi mail tới ${toAddresses.length} địa chỉ qua Mailtrap API...`);
 
       const attachments = file ? [{
         filename: file.originalname,
-        content: file.buffer, 
+        content: file.buffer.toString('base64'),
+        type: file.mimetype,
+        disposition: 'attachment'
       }] : [];
 
-      const { data, error } = await resend.emails.send({
-        from: 'Đoàn Khoa CNPM <onboarding@resend.dev>',
-        to: emailList,
-        subject: `[THÔNG BÁO] ${title}`,
-        attachments: attachments,
-        html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
-            <div style="background-color: #0054a5; padding: 24px; text-align: center; color: white;">
-              <h2 style="margin: 0; font-size: 18px; text-transform: uppercase; letter-spacing: 1px;">Đoàn TNCS Hồ Chí Minh - Khoa CNPM</h2>
-            </div>
-            <div style="padding: 32px; background-color: #ffffff;">
-              <p style="margin-top: 0; font-weight: bold;">Xin chào các đồng chí cán bộ Đoàn,</p>
-              <p>Ban Chấp hành Đoàn khoa vừa triển khai nội dung thông báo mới chi tiết dưới đây:</p>
-              <div style="background-color: #f8fafc; padding: 20px; border-left: 4px solid #1d92ff; border-radius: 8px; margin: 24px 0;">
-                <h3 style="margin-top: 0; color: #0054a5; font-size: 16px;">${title}</h3>
-                <p style="white-space: pre-wrap; margin-bottom: 0; font-size: 14px; color: #475569;">${content}</p>
-              </div>
-              ${file ? `<p style="font-size: 13px; color: #1d92ff; font-weight: bold;">📎 Có tệp tin đính kèm gửi kèm email này.</p>` : ''}
-              <p>Vui lòng đăng nhập hệ thống nghiệp vụ để theo dõi và cập nhật chi tiết công tác nghiệp vụ.</p>
-            </div>
-            <div style="background-color: #f8fafc; padding: 16px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8;">
-              Đây là email tự động từ Hệ thống Nghiệp vụ công tác Đoàn khoa CNPM SE-UIT-VNUHCM.
-            </div>
+      const htmlContent = `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
+          <div style="background-color: #0054a5; padding: 24px; text-align: center; color: white;">
+            <h2 style="margin: 0; font-size: 18px; text-transform: uppercase; letter-spacing: 1px;">Đoàn TNCS Hồ Chí Minh - Khoa CNPM</h2>
           </div>
-        `,
+          <div style="padding: 32px; background-color: #ffffff;">
+            <p style="margin-top: 0; font-weight: bold;">Xin chào các đồng chí cán bộ Đoàn,</p>
+            <p>Ban Chấp hành Đoàn khoa vừa triển khai nội dung thông báo mới chi tiết dưới đây:</p>
+            <div style="background-color: #f8fafc; padding: 20px; border-left: 4px solid #1d92ff; border-radius: 8px; margin: 24px 0;">
+              <h3 style="margin-top: 0; color: #0054a5; font-size: 16px;">${title}</h3>
+              <p style="white-space: pre-wrap; margin-bottom: 0; font-size: 14px; color: #475569;">${content}</p>
+            </div>
+            ${file ? `<p style="font-size: 13px; color: #1d92ff; font-weight: bold;">📎 Có tệp tin đính kèm gửi kèm email này.</p>` : ''}
+            <p>Vui lòng đăng nhập hệ thống nghiệp vụ để theo dõi và cập nhật chi tiết công tác nghiệp vụ.</p>
+          </div>
+          <div style="background-color: #f8fafc; padding: 16px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8;">
+            Đây là email tự động từ Hệ thống Nghiệp vụ công tác Đoàn khoa CNPM SE-UIT-VNUHCM.
+          </div>
+        </div>
+      `;
+
+      const response = await fetch('https://send.api.mailtrap.io/api/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: { email: 'mailtrap@demomailtrap.com', name: 'Đoàn Khoa CNPM' },
+          to: toAddresses,
+          subject: `[THÔNG BÁO] ${title}`,
+          html: htmlContent,
+          attachments: attachments
+        })
       });
 
-      if (error) {
-        console.error('Lỗi trả về từ Resend API:', error);
+      if (response.ok) {
+        const resData = await response.json();
+        console.log('Tiến trình gửi mail qua Mailtrap hoàn tất:', resData);
       } else {
-        console.log('Tiến trình gửi mail qua Resend hoàn tất. ID:', data?.id);
+        const errData = await response.text();
+        console.error('Lỗi từ Mailtrap API:', errData);
       }
     } catch (error) {
-      console.error('Lỗi hệ thống khi gọi Resend:', error);
+      console.error('Lỗi hệ thống khi gọi Mailtrap:', error);
     }
   }
 }
