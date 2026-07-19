@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { connectToDatabase } from '../../lib/mongodb';
 import { signToken } from '../../lib/jwt';
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class LoginService {
