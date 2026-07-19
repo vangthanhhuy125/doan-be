@@ -161,7 +161,7 @@ export class AnnouncementsService {
       const htmlContent = `
         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
           <div style="background-color: #0054a5; padding: 24px; text-align: center; color: white;">
-            <h2 style="margin: 0; font-size: 18px; text-transform: uppercase; letter-spacing: 1px;">Đoàn TNCS Hồ Chí Minh - Khoa CNPM</h2>
+            <h2 style="margin: 0; font-size: 18px; text-transform: uppercase; letter-spacing: 1px;">Đoàn TNCS Hồ Chí Minh khoa Công nghệ Phần mềm</h2>
           </div>
           <div style="padding: 32px; background-color: #ffffff;">
             <p style="margin-top: 0; font-weight: bold;">Xin chào các đồng chí cán bộ Đoàn,</p>
