@@ -14,6 +14,7 @@ import { YouthProjectsModule } from './youth-project/youth-project.module';
 import { BannerConfigModule } from './banner-config/banner-config.module';
 import { SystemConfigModule } from './system-config/system-config.module';
 import { LoginModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { LoginModule } from './auth/auth.module';
     YouthProjectsModule,
     BannerConfigModule,
     SystemConfigModule,
+    UsersModule,
   ],
 })
 export class AppModule {}
