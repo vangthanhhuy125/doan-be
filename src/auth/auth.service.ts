@@ -10,14 +10,51 @@ export class LoginService {
   async login(credentials: any) {
     try {
       const { db } = await connectToDatabase();
-      const user = await db.collection(this.collectionName).findOne({
-        username: credentials.username,
-        password: credentials.password,
-      });
+      
+      const accounts = await db.collection(this.collectionName).aggregate([
+        {
+          $match: {
+            username: credentials.username,
+            password: credentials.password,
+          }
+        },
+        {
+          $addFields: {
+            user_id_obj: {
+              $convert: {
+                input: "$user_id",
+                to: "objectId",
+                onError: null,
+                onNull: null
+              }
+            }
+          }
+        },
+        {
+          $lookup: {
+            from: 'Users',
+            localField: 'user_id_obj',
+            foreignField: '_id',
+            as: 'user_info'
+          }
+        },
+        {
+          $unwind: {
+            path: '$user_info',
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
+          $project: {
+            password: 0,
+            user_id_obj: 0
+          }
+        }
+      ]).toArray();
 
-      if (!user) return null;
+      if (!accounts || accounts.length === 0) return null;
 
-      const { password, ...userWithoutPassword } = user;
+      const user = accounts[0];
 
       const token = signToken({
         id: user._id.toString(),
@@ -25,7 +62,9 @@ export class LoginService {
       });
 
       return {
-        ...userWithoutPassword,
+        ...user,
+        full_name: user.user_info?.full_name || user.full_name || user.username,
+        image_url: user.user_info?.image_url || user.image_url || '',
         token,
       };
     } catch (error) {
