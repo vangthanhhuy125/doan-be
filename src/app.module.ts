@@ -15,6 +15,7 @@ import { BannerConfigModule } from './banner-config/banner-config.module';
 import { SystemConfigModule } from './system-config/system-config.module';
 import { LoginModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { RegistrationFormsModule } from './registration-forms/registration-forms.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { UsersModule } from './users/users.module';
     BannerConfigModule,
     SystemConfigModule,
     UsersModule,
+    RegistrationFormsModule,
   ],
 })
 export class AppModule {}

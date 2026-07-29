@@ -6,10 +6,53 @@ import * as nodemailer from 'nodemailer';
 @Injectable()
 export class AnnouncementsService {
 
-  async findAll() {
+async findAll(userId?: string, isManage: boolean = false) {
     try {
       const { db } = await connectToDatabase();
-      return await db.collection('Announcements').find().sort({ posted_at: -1 }).toArray();
+      const allAnnouncements = await db.collection('Announcements').find().sort({ posted_at: -1 }).toArray();
+
+      // 1. Màn hình Quản lý / Tạo thông báo: TRẢ VỀ TOÀN BỘ (Không lọc)
+      if (isManage) {
+        return allAnnouncements;
+      }
+
+      // 2. Không có userId: Chỉ hiện các thông báo ALL
+      if (!userId || userId === 'undefined') {
+        return allAnnouncements.filter((item: any) => !item.emailTarget || item.emailTarget === 'ALL');
+      }
+
+      const cleanUserId = String(userId).trim();
+      const userObjectId = new ObjectId(cleanUserId);
+
+      // 3. Màn hình Profile cá nhân: Lọc theo người nhận
+      const filteredAnnouncements = allAnnouncements.filter((item: any) => {
+        if (!item.emailTarget || item.emailTarget === 'ALL') {
+          return true;
+        }
+
+        if (item.emailTarget === 'SPECIFIC') {
+          let receiverIds = item.receiverIds;
+
+          if (typeof receiverIds === 'string') {
+            try {
+              receiverIds = JSON.parse(receiverIds);
+            } catch (e) {
+              receiverIds = [receiverIds];
+            }
+          }
+
+          if (Array.isArray(receiverIds) && receiverIds.length > 0) {
+            return receiverIds.some((id: any) => {
+              const idStr = String(id).trim();
+              return idStr === cleanUserId || idStr === userObjectId.toString();
+            });
+          }
+        }
+
+        return false;
+      });
+
+      return filteredAnnouncements;
     } catch (error) {
       throw new InternalServerErrorException('Lỗi lấy danh sách thông báo');
     }
@@ -20,10 +63,22 @@ export class AnnouncementsService {
       const { db } = await connectToDatabase();
       const shouldSendEmail = payload.sendEmail === 'true';
 
+      // Chuẩn hóa receiverIds về đúng Mảng trước khi lưu
+      let parsedReceiverIds = payload.receiverIds || [];
+      if (typeof parsedReceiverIds === 'string') {
+        try {
+          parsedReceiverIds = JSON.parse(parsedReceiverIds);
+        } catch (e) {
+          parsedReceiverIds = [parsedReceiverIds];
+        }
+      }
+
       const newNotice: any = {
         title: payload.title,
         content: payload.content,
         posted_at: payload.posted_at || new Date().toISOString(),
+        emailTarget: payload.emailTarget || 'ALL', 
+        receiverIds: parsedReceiverIds,
       };
 
       if (file) {
@@ -36,11 +91,11 @@ export class AnnouncementsService {
       }
       
       const result = await db.collection('Announcements').insertOne(newNotice);
-      
+
       if (shouldSendEmail) {
         await this.sendNotificationEmails(payload.title, payload.content, payload, file);
       }
-      
+
       return { _id: result.insertedId, ...newNotice };
     } catch (error) {
       throw new InternalServerErrorException('Lỗi khi lưu thông báo');
@@ -52,10 +107,21 @@ export class AnnouncementsService {
       const { db } = await connectToDatabase();
       const shouldSendEmail = payload.sendEmail === 'true';
 
+      let parsedReceiverIds = payload.receiverIds;
+      if (typeof parsedReceiverIds === 'string') {
+        try {
+          parsedReceiverIds = JSON.parse(parsedReceiverIds);
+        } catch (e) {
+          parsedReceiverIds = [parsedReceiverIds];
+        }
+      }
+
       const updateData: any = {
         title: payload.title,
         content: payload.content,
         posted_at: payload.posted_at,
+        emailTarget: payload.emailTarget,
+        receiverIds: parsedReceiverIds,
       };
 
       if (file) {

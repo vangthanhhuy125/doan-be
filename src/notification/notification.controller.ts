@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, HttpCode, HttpStatus, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, HttpCode, HttpStatus, UseInterceptors, UploadedFile, Req, Query } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AnnouncementsService } from './notification.service';
 
@@ -7,8 +7,18 @@ export class AnnouncementsController {
   constructor(private readonly announcementsService: AnnouncementsService) {}
 
   @Get()
-  async getAll() {
-    return this.announcementsService.findAll();
+  async getAll(
+    @Req() req: any, 
+    @Query('userId') queryUserId?: string, 
+    @Query('manage') isManage?: string
+  ) {
+    const headerUserId = req.headers['x-user-id'] || req.headers['X-User-Id'];
+    const tokenUserId = req.user?.user_id || req.user?._id || req.user?.id;
+    const finalUserId = (headerUserId || tokenUserId || queryUserId) as string;
+
+    const manageMode = isManage === 'true';
+
+    return this.announcementsService.findAll(finalUserId, manageMode);
   }
 
   @Post()
