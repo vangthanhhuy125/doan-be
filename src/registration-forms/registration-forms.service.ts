@@ -1,23 +1,18 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class RegistrationFormsService {
-  
-  // 1. Lấy danh sách tất cả phiếu đăng ký (kèm số lượng submissions)
   async findAll() {
     try {
       const { db } = await connectToDatabase();
       const forms = await db.collection('RegistrationForms').find().sort({ created_at: -1 }).toArray();
-
-      // Lấy danh sách submissions để đếm tổng số lượt đăng ký cho từng phiếu
       const formsWithStats = await Promise.all(
         forms.map(async (form) => {
           const submissions = await db.collection('RegistrationSubmissions')
             .find({ form_id: form._id.toString() })
             .toArray();
-
           return {
             ...form,
             _id: form._id.toString(),
@@ -28,14 +23,12 @@ export class RegistrationFormsService {
           };
         })
       );
-
       return formsWithStats;
     } catch (error) {
       throw new InternalServerErrorException('Lỗi lấy danh sách phiếu đăng ký');
     }
   }
 
-  // 2. Lấy chi tiết 1 phiếu đăng ký theo ID
   async findOne(id: string) {
     try {
       const { db } = await connectToDatabase();
@@ -45,19 +38,15 @@ export class RegistrationFormsService {
       } catch {
         queryId = id;
       }
-
       const form = await db.collection('RegistrationForms').findOne({
         $or: [{ _id: queryId }, { _id: id }]
       });
-
       if (!form) {
         throw new NotFoundException('Không tìm thấy phiếu đăng ký');
       }
-
       const submissions = await db.collection('RegistrationSubmissions')
         .find({ $or: [{ form_id: id }, { form_id: form._id.toString() }] })
         .toArray();
-
       return {
         ...form,
         _id: form._id.toString(),
@@ -68,24 +57,22 @@ export class RegistrationFormsService {
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      throw new InternalServerErrorException('Lỗi chi tiết phiếu đăng ký');
+      throw new InternalServerErrorException('Lỗi lấy chi tiết phiếu đăng ký');
     }
   }
 
-  // 3. Tạo phiếu đăng ký mới
   async create(payload: any) {
     try {
       const { db } = await connectToDatabase();
-
       const newForm = {
         title: payload.title,
         description: payload.description || '',
         created_at: payload.created_at || new Date().toISOString(),
+        created_by: payload.created_by || payload.user_id || '',
+        is_locked: payload.is_locked || false,
         programs: payload.programs || []
       };
-
       const result = await db.collection('RegistrationForms').insertOne(newForm);
-
       return {
         _id: result.insertedId.toString(),
         ...newForm,
@@ -96,7 +83,6 @@ export class RegistrationFormsService {
     }
   }
 
-  // 4. Cập nhật thông tin phiếu đăng ký
   async update(id: string, payload: any) {
     try {
       const { db } = await connectToDatabase();
@@ -107,11 +93,27 @@ export class RegistrationFormsService {
         queryId = id;
       }
 
-      const updateData = {
+      const existingForm = await db.collection('RegistrationForms').findOne({
+        $or: [{ _id: queryId }, { _id: id }]
+      });
+
+      if (!existingForm) {
+        throw new NotFoundException('Không tìm thấy phiếu đăng ký để cập nhật');
+      }
+
+      const requestUserId = payload.user_id || payload.created_by || '';
+      if (existingForm.created_by && requestUserId && existingForm.created_by !== requestUserId) {
+        throw new ForbiddenException('Chỉ người tạo phiếu mới có quyền chỉnh sửa hoặc khóa/mở khóa phiếu này!');
+      }
+
+      const updateData: any = {
         title: payload.title,
         description: payload.description,
-        programs: payload.programs
+        programs: payload.programs || []
       };
+      if (typeof payload.is_locked === 'boolean') {
+        updateData.is_locked = payload.is_locked;
+      }
 
       const result = await db.collection('RegistrationForms').findOneAndUpdate(
         { $or: [{ _id: queryId }, { _id: id }] },
@@ -119,22 +121,27 @@ export class RegistrationFormsService {
         { returnDocument: 'after' }
       );
 
-      if (!result) {
-        throw new NotFoundException('Không tìm thấy phiếu để cập nhật');
-      }
+      const updatedDoc = (result as any)?.value || result;
+
+      const submissions = await db.collection('RegistrationSubmissions')
+        .find({ $or: [{ form_id: id }, { form_id: updatedDoc._id.toString() }] })
+        .toArray();
 
       return {
-        ...result,
-        _id: result._id.toString()
+        ...updatedDoc,
+        _id: updatedDoc._id.toString(),
+        submissions: submissions.map(sub => ({
+          ...sub,
+          _id: sub._id.toString()
+        }))
       };
     } catch (error) {
-      if (error instanceof NotFoundException) throw error;
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) throw error;
       throw new InternalServerErrorException('Lỗi cập nhật phiếu đăng ký');
     }
   }
 
-  // 5. Xóa phiếu đăng ký (và xóa toàn bộ lượt đăng ký liên quan)
-  async delete(id: string) {
+  async delete(id: string, payload?: any) {
     try {
       const { db } = await connectToDatabase();
       let queryId: any;
@@ -142,6 +149,19 @@ export class RegistrationFormsService {
         queryId = new ObjectId(id);
       } catch {
         queryId = id;
+      }
+
+      const existingForm = await db.collection('RegistrationForms').findOne({
+        $or: [{ _id: queryId }, { _id: id }]
+      });
+
+      if (!existingForm) {
+        throw new NotFoundException('Không tìm thấy phiếu đăng ký để xóa');
+      }
+
+      const requestUserId = payload?.user_id || payload?.created_by || '';
+      if (existingForm.created_by && requestUserId && existingForm.created_by !== requestUserId) {
+        throw new ForbiddenException('Chỉ người tạo phiếu mới có quyền xóa phiếu này!');
       }
 
       const result = await db.collection('RegistrationForms').deleteOne({
@@ -152,29 +172,40 @@ export class RegistrationFormsService {
         throw new NotFoundException('Không tìm thấy phiếu đăng ký để xóa');
       }
 
-      // Xóa kèm toàn bộ lượt đăng ký thuộc phiếu này
       await db.collection('RegistrationSubmissions').deleteMany({
         $or: [{ form_id: id }, { form_id: queryId?.toString() }]
       });
 
       return { success: true };
     } catch (error) {
-      if (error instanceof NotFoundException) throw error;
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) throw error;
       throw new InternalServerErrorException('Lỗi xóa phiếu đăng ký');
     }
   }
 
-  // 6. Sinh viên nộp phiếu đăng ký
-  // 6. Sinh viên nộp / cập nhật phiếu đăng ký (Ghi đè nếu đã tồn tại)
   async submitRegistration(formId: string, payload: any) {
     try {
       const { db } = await connectToDatabase();
+
+      let queryId: any;
+      try {
+        queryId = new ObjectId(formId);
+      } catch {
+        queryId = formId;
+      }
+
+      const form = await db.collection('RegistrationForms').findOne({
+        $or: [{ _id: queryId }, { _id: formId }]
+      });
+
+      if (form && form.is_locked) {
+        throw new BadRequestException('Phiếu đăng ký này đã bị khóa. Không thể thực hiện đăng ký hoặc chỉnh sửa!');
+      }
 
       const filter = {
         form_id: formId,
         student_id: payload.student_id
       };
-
       const updateDoc = {
         $set: {
           form_id: formId,
@@ -182,26 +213,27 @@ export class RegistrationFormsService {
           full_name: payload.full_name,
           class_name: payload.class_name,
           choices: payload.choices || {},
+          leadership_choices: payload.leadership_choices || {},
           submitted_at: payload.submitted_at || new Date().toISOString()
         }
       };
-
       const result = await db.collection('RegistrationSubmissions').findOneAndUpdate(
         filter,
         updateDoc,
         { upsert: true, returnDocument: 'after' }
       );
 
-      if (!result) {
+      const updatedSub = (result as any)?.value || result;
+
+      if (!updatedSub) {
         throw new InternalServerErrorException('Không thể lưu thông tin đăng ký');
       }
-
       return {
-        ...result,
-        _id: result._id.toString()
+        ...updatedSub,
+        _id: updatedSub._id ? updatedSub._id.toString() : new Date().getTime().toString()
       };
     } catch (error) {
-      if (error instanceof InternalServerErrorException) throw error;
+      if (error instanceof BadRequestException || error instanceof InternalServerErrorException) throw error;
       throw new InternalServerErrorException('Lỗi nộp phiếu đăng ký');
     }
   }

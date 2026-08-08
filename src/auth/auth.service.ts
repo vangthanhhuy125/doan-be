@@ -15,7 +15,6 @@ export class LoginService {
         {
           $match: {
             username: credentials.username,
-            password: credentials.password,
           }
         },
         {
@@ -43,18 +42,25 @@ export class LoginService {
             path: '$user_info',
             preserveNullAndEmptyArrays: true
           }
-        },
-        {
-          $project: {
-            password: 0,
-            user_id_obj: 0
-          }
         }
       ]).toArray();
 
       if (!accounts || accounts.length === 0) return null;
 
       const user = accounts[0];
+      const dbPassword = user.password || '';
+      let isMatch = false;
+
+      if (dbPassword.startsWith('$2b$') || dbPassword.startsWith('$2a$')) {
+        isMatch = await bcrypt.compare(credentials.password, dbPassword);
+      } else {
+        isMatch = dbPassword === credentials.password;
+      }
+
+      if (!isMatch) return null;
+
+      delete user.password;
+      delete user.user_id_obj;
 
       const token = signToken({
         id: user._id.toString(),

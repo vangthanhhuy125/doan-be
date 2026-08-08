@@ -1,5 +1,6 @@
-import { Controller, Get, Put, Body, Req, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Put, Body, Req, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Controller('users')
 export class UsersController {
@@ -8,11 +9,9 @@ export class UsersController {
   @Get('profile')
   async getProfile(@Req() req: any) {
     const userId = req.headers['x-user-id'] || req.user?.user_id || req.user?.id;
-    
     if (!userId) {
       throw new UnauthorizedException('Thiếu thông tin xác thực');
     }
-
     return this.usersService.getProfile(userId);
   }
 
@@ -31,11 +30,21 @@ export class UsersController {
     }
   ) {
     const userId = req.headers['x-user-id'] || req.user?.user_id || req.user?.id;
-
     if (!userId) {
       throw new UnauthorizedException('Thiếu thông tin xác thực');
     }
-
     return this.usersService.updateProfile(userId, body);
+  }
+
+  @Put('change-password')
+  async changePassword(
+    @Req() req: any,
+    @Body() dto: ChangePasswordDto
+  ) {
+    const userId = req.headers['x-user-id'] || req.user?.user_id || req.user?.id;
+    if (!userId) {
+      throw new UnauthorizedException('Thiếu thông tin xác thực');
+    }
+    return this.usersService.changePassword(userId, dto);
   }
 }
