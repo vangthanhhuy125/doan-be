@@ -6,23 +6,36 @@ import * as nodemailer from 'nodemailer';
 @Injectable()
 export class AnnouncementsService {
 
-async findAll(userId?: string, isManage: boolean = false) {
+  async findAll(userId?: string, isManage: boolean = false) {
     try {
       const { db } = await connectToDatabase();
       const allAnnouncements = await db.collection('Announcements').find().sort({ posted_at: -1 }).toArray();
 
       // 1. Màn hình Quản lý / Tạo thông báo: TRẢ VỀ TOÀN BỘ (Không lọc)
       if (isManage) {
-        return allAnnouncements;
+        return allAnnouncements.map(item => ({
+          ...item,
+          _id: item._id.toString(),
+          read_by: item.read_by || []
+        }));
       }
 
       // 2. Không có userId: Chỉ hiện các thông báo ALL
       if (!userId || userId === 'undefined') {
-        return allAnnouncements.filter((item: any) => !item.emailTarget || item.emailTarget === 'ALL');
+        return allAnnouncements
+          .filter((item: any) => !item.emailTarget || item.emailTarget === 'ALL')
+          .map(item => ({
+            ...item,
+            _id: item._id.toString(),
+            read_by: item.read_by || []
+          }));
       }
 
       const cleanUserId = String(userId).trim();
-      const userObjectId = new ObjectId(cleanUserId);
+      let userObjectId: ObjectId | null = null;
+      try {
+        userObjectId = new ObjectId(cleanUserId);
+      } catch (e) {}
 
       // 3. Màn hình Profile cá nhân: Lọc theo người nhận
       const filteredAnnouncements = allAnnouncements.filter((item: any) => {
@@ -44,7 +57,7 @@ async findAll(userId?: string, isManage: boolean = false) {
           if (Array.isArray(receiverIds) && receiverIds.length > 0) {
             return receiverIds.some((id: any) => {
               const idStr = String(id).trim();
-              return idStr === cleanUserId || idStr === userObjectId.toString();
+              return idStr === cleanUserId || (userObjectId && idStr === userObjectId.toString());
             });
           }
         }
@@ -52,9 +65,41 @@ async findAll(userId?: string, isManage: boolean = false) {
         return false;
       });
 
-      return filteredAnnouncements;
+      return filteredAnnouncements.map(item => ({
+        ...item,
+        _id: item._id.toString(),
+        read_by: item.read_by || []
+      }));
     } catch (error) {
       throw new InternalServerErrorException('Lỗi lấy danh sách thông báo');
+    }
+  }
+
+  // 🟢 BỔ SUNG: Đánh dấu thông báo đã đọc theo userId
+  async markAsRead(id: string, userId: string) {
+    try {
+      if (!userId || userId === 'undefined') {
+        return { success: false, message: 'Thiếu thông tin người dùng' };
+      }
+
+      const { db } = await connectToDatabase();
+      let queryId: any;
+      try {
+        queryId = new ObjectId(id);
+      } catch {
+        queryId = id;
+      }
+
+      const cleanUserId = String(userId).trim();
+
+      await db.collection('Announcements').updateOne(
+        { $or: [{ _id: queryId }, { _id: id }] },
+        { $addToSet: { read_by: cleanUserId } }
+      );
+
+      return { success: true, message: 'Đã đánh dấu thông báo đã đọc' };
+    } catch (error) {
+      throw new InternalServerErrorException('Lỗi đánh dấu đã đọc thông báo');
     }
   }
 
@@ -79,6 +124,7 @@ async findAll(userId?: string, isManage: boolean = false) {
         posted_at: payload.posted_at || new Date().toISOString(),
         emailTarget: payload.emailTarget || 'ALL', 
         receiverIds: parsedReceiverIds,
+        read_by: [] // 🟢 Mặc định khởi tạo danh sách đã đọc
       };
 
       if (file) {
@@ -96,7 +142,7 @@ async findAll(userId?: string, isManage: boolean = false) {
         await this.sendNotificationEmails(payload.title, payload.content, payload, file);
       }
 
-      return { _id: result.insertedId, ...newNotice };
+      return { _id: result.insertedId.toString(), ...newNotice };
     } catch (error) {
       throw new InternalServerErrorException('Lỗi khi lưu thông báo');
     }
@@ -116,6 +162,9 @@ async findAll(userId?: string, isManage: boolean = false) {
         }
       }
 
+      let queryId: any;
+      try { queryId = new ObjectId(id); } catch { queryId = id; }
+
       const updateData: any = {
         title: payload.title,
         content: payload.content,
@@ -134,12 +183,14 @@ async findAll(userId?: string, isManage: boolean = false) {
       }
 
       const result = await db.collection('Announcements').findOneAndUpdate(
-        { _id: new ObjectId(id) },
+        { $or: [{ _id: queryId }, { _id: id }] },
         { $set: updateData },
         { returnDocument: 'after' }
       );
 
-      if (!result) {
+      const updatedDoc = (result as any)?.value || result;
+
+      if (!updatedDoc) {
         throw new NotFoundException('Không tìm thấy thông báo để cập nhật');
       }
 
@@ -147,7 +198,10 @@ async findAll(userId?: string, isManage: boolean = false) {
         await this.sendNotificationEmails(payload.title, payload.content, payload, file);
       }
 
-      return result;
+      return {
+        ...updatedDoc,
+        _id: updatedDoc._id.toString()
+      };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       throw new InternalServerErrorException('Lỗi khi cập nhật thông báo');
@@ -157,7 +211,13 @@ async findAll(userId?: string, isManage: boolean = false) {
   async delete(id: string) {
     try {
       const { db } = await connectToDatabase();
-      const result = await db.collection('Announcements').deleteOne({ _id: new ObjectId(id) });
+      let queryId: any;
+      try { queryId = new ObjectId(id); } catch { queryId = id; }
+
+      const result = await db.collection('Announcements').deleteOne({
+        $or: [{ _id: queryId }, { _id: id }]
+      });
+
       if (result.deletedCount === 0) {
         throw new NotFoundException('Không tìm thấy thông báo để xóa');
       }
@@ -184,7 +244,9 @@ async findAll(userId?: string, isManage: boolean = false) {
       if (payload.emailTarget === 'SPECIFIC' && payload.receiverIds) {
         const parsedIds = typeof payload.receiverIds === 'string' ? JSON.parse(payload.receiverIds) : payload.receiverIds;
         if (Array.isArray(parsedIds) && parsedIds.length > 0) {
-          const objectIds = parsedIds.map((id: string) => new ObjectId(id));
+          const objectIds = parsedIds.map((id: string) => {
+            try { return new ObjectId(id); } catch { return id; }
+          });
           query = { _id: { $in: objectIds } };
         }
       }

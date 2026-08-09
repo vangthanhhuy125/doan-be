@@ -20,13 +20,18 @@ export class SystemConfigService {
           classBranches: [],
           achievements: [], 
           documents: [],
+          formManagers: [],
           contact: {
             address: '', email: '', fanpage: '',
             introduction: '', mission: '', vocation: '', structure: '', softwareIntro: ''
           }
         };
       }
-      return config.value;
+
+      return {
+        ...config.value,
+        formManagers: config.value.formManagers || config.value.registrationFormManagers || []
+      };
     } catch (error) {
       throw new InternalServerErrorException('Lấy tham số hệ thống thất bại');
     }
@@ -48,6 +53,7 @@ export class SystemConfigService {
               classBranches: data.classBranches || [],
               achievements: data.achievements || [], 
               documents: data.documents || [],
+              formManagers: data.formManagers || (data as any).registrationFormManagers || [],
               contact: {
                 address: data.contact?.address || '',
                 email: data.contact?.email || '',

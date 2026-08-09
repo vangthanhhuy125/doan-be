@@ -11,7 +11,13 @@ export class UpdateSystemConfigDto {
     image?: string; 
     content: string;
   }[];
-  
+
+  formManagers?: {
+    user_id: string;
+    displayName?: string;
+    username?: string;
+  }[];
+
   contact?: {
     address: string;
     email: string;

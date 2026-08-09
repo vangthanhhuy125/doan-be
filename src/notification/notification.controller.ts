@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, HttpCode, HttpStatus, UseInterceptors, UploadedFile, Req, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, HttpCode, HttpStatus, UseInterceptors, UploadedFile, Req, Query, Headers } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AnnouncementsService } from './notification.service';
 
@@ -19,6 +19,17 @@ export class AnnouncementsController {
     const manageMode = isManage === 'true';
 
     return this.announcementsService.findAll(finalUserId, manageMode);
+  }
+
+  // 🟢 BỔ SUNG: Endpoint đánh dấu đã đọc
+  @Put(':id/read')
+  async markAsRead(
+    @Param('id') id: string,
+    @Headers('x-user-id') headerUserId: string,
+    @Body() body: any
+  ) {
+    const userId = headerUserId || body?.user_id || body?.userId || '';
+    return this.announcementsService.markAsRead(id, userId);
   }
 
   @Post()

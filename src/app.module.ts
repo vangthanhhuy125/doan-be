@@ -16,6 +16,8 @@ import { SystemConfigModule } from './system-config/system-config.module';
 import { LoginModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { RegistrationFormsModule } from './registration-forms/registration-forms.module';
+import { PermissionsModule } from './permissions/permissions.module';
+import { SurveysModule } from './surveys/surveys.module';
 
 @Module({
   imports: [
@@ -39,6 +41,8 @@ import { RegistrationFormsModule } from './registration-forms/registration-forms
     SystemConfigModule,
     UsersModule,
     RegistrationFormsModule,
+    PermissionsModule,
+    SurveysModule,
   ],
 })
 export class AppModule {}
