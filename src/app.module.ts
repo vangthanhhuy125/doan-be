@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { NhanSuModule } from './human-resources/human-resources.module';
 import { AccountsModule } from './settings/settings.module';
@@ -18,6 +18,8 @@ import { UsersModule } from './users/users.module';
 import { RegistrationFormsModule } from './registration-forms/registration-forms.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { SurveysModule } from './surveys/surveys.module';
+import { LogsModule } from './logs/logs.module';
+import { LogsMiddleware } from './logs/logs.middleware';
 
 @Module({
   imports: [
@@ -43,6 +45,13 @@ import { SurveysModule } from './surveys/surveys.module';
     RegistrationFormsModule,
     PermissionsModule,
     SurveysModule,
+    LogsModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(LogsMiddleware)
+      .forRoutes('*'); 
+  }
+}
