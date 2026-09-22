@@ -176,6 +176,17 @@ export class YouthUnionService {
       : { scope: 'HOI' };
     const orgsRaw = await db.collection('Organizations').find(orgFilter).toArray();
 
+    orgsRaw.sort((a: any, b: any) => {
+      const isClassA = a.unitType === 'CHIDOAN' || a.unitType === 'CHIHOI';
+      const isClassB = b.unitType === 'CHIDOAN' || b.unitType === 'CHIHOI';
+      if (isClassA && !isClassB) return -1;
+      if (!isClassA && isClassB) return 1;
+
+      const nameA = a.ten || a.group_name || '';
+      const nameB = b.ten || b.group_name || '';
+      return nameA.localeCompare(nameB, 'vi', { numeric: true });
+    });
+
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet(isDoan ? 'Đoàn Khoa' : 'Liên Chi hội', {
       views: [{ showGridLines: true }],
