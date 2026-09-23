@@ -176,11 +176,34 @@ export class YouthUnionService {
       : { scope: 'HOI' };
     const orgsRaw = await db.collection('Organizations').find(orgFilter).toArray();
 
+    const isClass = (u: any) => {
+      if (u.unitType === 'TAPTHE') return false;
+      const name = (u.ten || u.group_name || '').toUpperCase();
+      if (name.includes('CLB') || name.includes('BAN') || name.includes('ĐỘI') || name.includes('DOI')) return false;
+      return true;
+    };
+
+    const getIntake = (u: any) => {
+      const val = u.khoa || u.intake;
+      if (val) {
+        const num = parseInt(String(val), 10);
+        if (!isNaN(num) && num > 1900 && num < 2100) return num;
+      }
+      const match = (u.ten || u.group_name || '').match(/\d{4}/);
+      return match ? parseInt(match[0], 10) : 9999;
+    };
+
     orgsRaw.sort((a: any, b: any) => {
-      const isClassA = a.unitType === 'CHIDOAN' || a.unitType === 'CHIHOI';
-      const isClassB = b.unitType === 'CHIDOAN' || b.unitType === 'CHIHOI';
-      if (isClassA && !isClassB) return -1;
-      if (!isClassA && isClassB) return 1;
+      const classA = isClass(a);
+      const classB = isClass(b);
+      if (classA && !classB) return -1;
+      if (!classA && classB) return 1;
+
+      if (classA && classB) {
+        const intakeA = getIntake(a);
+        const intakeB = getIntake(b);
+        if (intakeA !== intakeB) return intakeA - intakeB;
+      }
 
       const nameA = a.ten || a.group_name || '';
       const nameB = b.ten || b.group_name || '';
@@ -371,7 +394,11 @@ export class YouthUnionService {
           }
         }
 
-        (unit.uvbch || []).forEach((uvName: string) => {
+        const uvList = Array.isArray(unit.uvbch) && unit.uvbch.length > 0
+          ? unit.uvbch
+          : [unit.uvBch1, unit.uvBch2, unit.uvBch3].filter(Boolean);
+
+        uvList.forEach((uvName: string) => {
           if (!uvName) return;
           const u = userByName.get(uvName.trim().toLowerCase());
           unitMembers.push({
