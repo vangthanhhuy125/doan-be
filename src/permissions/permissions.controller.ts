@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param } from '@nestjs/common';
 import { PermissionsService } from './permissions.service';
 
 @Controller('permissions')
@@ -7,28 +7,26 @@ export class PermissionsController {
 
   @Get()
   async getAll() {
-    return this.permissionsService.findAll();
+    return await this.permissionsService.getAll();
   }
 
   @Get(':id')
-  async getOne(@Param('id') id: string) {
-    return this.permissionsService.findOne(id);
+  async getById(@Param('id') id: string) {
+    return await this.permissionsService.getById(id);
   }
 
   @Post()
-  @HttpCode(HttpStatus.CREATED)
   async create(@Body() body: any) {
-    return this.permissionsService.create(body);
+    return await this.permissionsService.create(body);
   }
 
   @Put(':id')
   async update(@Param('id') id: string, @Body() body: any) {
-    return this.permissionsService.update(id, body);
+    return await this.permissionsService.update(id, body);
   }
 
   @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param('id') id: string) {
-    return this.permissionsService.delete(id);
+    return await this.permissionsService.delete(id);
   }
 }

@@ -1,18 +1,18 @@
-import { Controller, Post, Body, UnauthorizedException } from '@nestjs/common';
-import { LoginService } from './auth.service';
-import { Public } from '../public.decorator';
+import { Controller, Post, Get, Body, Request, UseGuards } from '@nestjs/common';
+import { AuthService } from './auth.service';
 
 @Controller('auth')
-export class LoginController {
-  constructor(private readonly loginService: LoginService) {}
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
 
-  @Public()
   @Post('login')
-  async login(@Body() body: any) {
-    const user = await this.loginService.login(body);
-    if (!user) {
-      throw new UnauthorizedException('Tài khoản hoặc mật khẩu không chính xác');
-    }
-    return user;
+  async login(@Body() loginDto: any) {
+    return await this.authService.login(loginDto);
+  }
+
+  @Get('profile')
+  async getProfile(@Request() req: any) {
+    const userId = req.user?._id || req.headers['x-user-id'];
+    return await this.authService.getProfile(userId);
   }
 }
