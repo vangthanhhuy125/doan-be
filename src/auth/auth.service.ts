@@ -1,11 +1,11 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import * as jwt from 'jsonwebtoken';
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly jwtService: JwtService) {}
+  private readonly jwtSecret = process.env.JWT_SECRET || 'secretKey_SE_UIT';
 
   async validateAndGetUserPermissions(user: any): Promise<string[]> {
     if (user.role === 'admin' || user.username === 'admin') {
@@ -35,7 +35,6 @@ export class AuthService {
       throw new UnauthorizedException('Tài khoản hoặc mật khẩu không chính xác');
     }
 
-    // Lấy đầy đủ mảng quyền từ bảng Permissions
     const permissions = await this.validateAndGetUserPermissions(user);
 
     const payload = {
@@ -48,7 +47,7 @@ export class AuthService {
       permissions,
     };
 
-    const token = this.jwtService.sign(payload);
+    const token = jwt.sign(payload, this.jwtSecret, { expiresIn: '7d' });
 
     return {
       access_token: token,
