@@ -13,7 +13,7 @@ import { SolutionModelsModule } from './solution-model/solution-model.module';
 import { YouthProjectsModule } from './youth-project/youth-project.module';
 import { BannerConfigModule } from './banner-config/banner-config.module';
 import { SystemConfigModule } from './system-config/system-config.module';
-import { LoginModule } from './auth/auth.module';
+import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { RegistrationFormsModule } from './registration-forms/registration-forms.module';
 import { PermissionsModule } from './permissions/permissions.module';
@@ -27,7 +27,7 @@ import { LogsMiddleware } from './logs/logs.middleware';
       isGlobal: true,
       envFilePath: '.env',
     }),
-    LoginModule,
+    AuthModule,
     NhanSuModule,
     AccountsModule,
     YouthUnionModule,
