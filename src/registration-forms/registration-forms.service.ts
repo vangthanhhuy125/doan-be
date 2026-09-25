@@ -16,6 +16,7 @@ export class RegistrationFormsService {
           return {
             ...form,
             _id: form._id.toString(),
+            target_intakes: Array.isArray(form.target_intakes) ? form.target_intakes : [],
             shared_permissions: form.shared_permissions || [],
             submissions: submissions.map(sub => ({
               ...sub,
@@ -51,6 +52,7 @@ export class RegistrationFormsService {
       return {
         ...form,
         _id: form._id.toString(),
+        target_intakes: Array.isArray(form.target_intakes) ? form.target_intakes : [],
         shared_permissions: form.shared_permissions || [],
         submissions: submissions.map(sub => ({
           ...sub,
@@ -72,6 +74,7 @@ export class RegistrationFormsService {
         created_at: payload.created_at || new Date().toISOString(),
         created_by: payload.created_by || payload.user_id || '',
         is_locked: payload.is_locked || false,
+        target_intakes: Array.isArray(payload.target_intakes) ? payload.target_intakes : [],
         programs: payload.programs || [],
         shared_permissions: payload.shared_permissions || []
       };
@@ -110,20 +113,22 @@ export class RegistrationFormsService {
       const sharedList = existingForm.shared_permissions || [];
       const userPerm = sharedList.find((p: any) => String(p.user_id) === String(requestUserId));
 
-      // Kiểm tra quyền chỉnh sửa danh sách chia sẻ
       if (payload.shared_permissions !== undefined && !isCreator) {
         throw new ForbiddenException('Chỉ người tạo phiếu mới có quyền quản lý chia sẻ!');
       }
 
-      // Kiểm tra quyền khóa/mở khóa phiếu
       if (typeof payload.is_locked === 'boolean' && payload.is_locked !== existingForm.is_locked) {
         if (!isCreator && !userPerm?.can_lock) {
           throw new ForbiddenException('Bạn không có quyền khóa/mở khóa phiếu này!');
         }
       }
 
-      // Kiểm tra quyền chỉnh sửa nội dung phiếu
-      const isEditingContent = payload.title !== undefined || payload.description !== undefined || payload.programs !== undefined;
+      const isEditingContent = 
+        payload.title !== undefined || 
+        payload.description !== undefined || 
+        payload.programs !== undefined ||
+        payload.target_intakes !== undefined;
+
       if (isEditingContent && !isCreator && !userPerm?.can_edit) {
         throw new ForbiddenException('Bạn không có quyền chỉnh sửa nội dung phiếu này!');
       }
@@ -132,6 +137,9 @@ export class RegistrationFormsService {
       if (payload.title !== undefined) updateData.title = payload.title;
       if (payload.description !== undefined) updateData.description = payload.description;
       if (payload.programs !== undefined) updateData.programs = payload.programs;
+      if (payload.target_intakes !== undefined) {
+        updateData.target_intakes = Array.isArray(payload.target_intakes) ? payload.target_intakes : [];
+      }
       if (typeof payload.is_locked === 'boolean') updateData.is_locked = payload.is_locked;
       if (payload.shared_permissions !== undefined) updateData.shared_permissions = payload.shared_permissions;
 
@@ -149,6 +157,7 @@ export class RegistrationFormsService {
       return {
         ...updatedDoc,
         _id: updatedDoc._id.toString(),
+        target_intakes: Array.isArray(updatedDoc.target_intakes) ? updatedDoc.target_intakes : [],
         shared_permissions: updatedDoc.shared_permissions || [],
         submissions: submissions.map(sub => ({
           ...sub,
