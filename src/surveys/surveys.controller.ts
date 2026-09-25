@@ -1,5 +1,5 @@
 import { 
-  Controller, Get, Post, Put, Delete, Param, Body, 
+  Controller, Get, Post, Put, Patch, Delete, Param, Body, 
   HttpCode, HttpStatus, Headers 
 } from '@nestjs/common';
 import { SurveysService } from './surveys.service';
@@ -23,7 +23,7 @@ export class SurveysController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() dto: CreateSurveyDto, 
-    @Headers('x-user-id') headerUserId: string
+    @Headers('x-user-id') headerUserId?: string
   ) {
     const userId = headerUserId || dto.created_by || '';
     return this.surveysService.create({ ...dto, created_by: userId });
@@ -31,6 +31,14 @@ export class SurveysController {
 
   @Put(':id')
   async update(
+    @Param('id') id: string, 
+    @Body() dto: UpdateSurveyDto
+  ) {
+    return this.surveysService.update(id, dto);
+  }
+
+  @Patch(':id')
+  async patchUpdate(
     @Param('id') id: string, 
     @Body() dto: UpdateSurveyDto
   ) {

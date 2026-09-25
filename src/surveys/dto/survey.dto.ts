@@ -25,6 +25,8 @@ export class CreateSurveyDto {
   description?: string;
   created_by?: string;
   is_locked?: boolean;
+  target_intakes?: string[];
+  target_users?: string[];
   sections?: SectionDto[];
   questions!: QuestionDto[];
 }
@@ -34,6 +36,8 @@ export class UpdateSurveyDto {
   title?: string;
   description?: string;
   is_locked?: boolean;
+  target_intakes?: string[];
+  target_users?: string[];
   sections?: SectionDto[];
   questions?: QuestionDto[];
 }

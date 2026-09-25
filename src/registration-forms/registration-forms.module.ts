@@ -5,6 +5,6 @@ import { RegistrationFormsService } from './registration-forms.service';
 @Module({
   controllers: [RegistrationFormsController],
   providers: [RegistrationFormsService],
-  exports: [RegistrationFormsService]
+  exports: [RegistrationFormsService],
 })
 export class RegistrationFormsModule {}

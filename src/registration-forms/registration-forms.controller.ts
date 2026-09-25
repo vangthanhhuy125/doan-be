@@ -26,7 +26,6 @@ export class RegistrationFormsController {
       ...body,
       created_by: userId,
       user_id: userId,
-      target_intakes: Array.isArray(body?.target_intakes) ? body.target_intakes : [],
     };
     return this.registrationFormsService.create(payload);
   }
@@ -42,7 +41,6 @@ export class RegistrationFormsController {
     const payload = {
       ...body,
       user_id: userId,
-      target_intakes: Array.isArray(body?.target_intakes) ? body.target_intakes : [],
     };
     return this.registrationFormsService.update(id, payload);
   }
@@ -58,7 +56,6 @@ export class RegistrationFormsController {
     const payload = {
       ...body,
       user_id: userId,
-      target_intakes: Array.isArray(body?.target_intakes) ? body.target_intakes : [],
     };
     return this.registrationFormsService.update(id, payload);
   }

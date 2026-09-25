@@ -7,7 +7,6 @@ import { CreateSurveyDto, UpdateSurveyDto, SubmitSurveyResponseDto } from './dto
 export class SurveysService {
   private collectionName = 'SurveyForms';
 
-  // 🟢 1. LẤY TẤT CẢ PHIẾU KHẢO SÁT
   async findAll() {
     try {
       const { db } = await connectToDatabase();
@@ -17,6 +16,8 @@ export class SurveysService {
         ...s,
         _id: s._id.toString(),
         voucherNo: s.voucherNo || `KS-2026-${String(s._id).slice(-3).toUpperCase()}`,
+        target_intakes: Array.isArray(s.target_intakes) ? s.target_intakes : [],
+        target_users: Array.isArray(s.target_users) ? s.target_users : [],
         sections: s.sections || [],
         questions: s.questions || [],
         responses: s.responses || []
@@ -26,7 +27,6 @@ export class SurveysService {
     }
   }
 
-  // 🟢 2. LẤY CHI TIẾT 1 PHIẾU KHẢO SÁT
   async findOne(id: string) {
     try {
       const { db } = await connectToDatabase();
@@ -44,6 +44,8 @@ export class SurveysService {
       return {
         ...survey,
         _id: survey._id.toString(),
+        target_intakes: Array.isArray(survey.target_intakes) ? survey.target_intakes : [],
+        target_users: Array.isArray(survey.target_users) ? survey.target_users : [],
         sections: survey.sections || [],
         questions: survey.questions || [],
         responses: survey.responses || []
@@ -54,13 +56,11 @@ export class SurveysService {
     }
   }
 
-  // 🟢 3. TẠO MỚI PHIẾU KHẢO SÁT (TỰ ĐỘNG TẠO MÃ VOUCHERNO)
   async create(dto: CreateSurveyDto) {
     try {
       const { db } = await connectToDatabase();
       const year = new Date().getFullYear();
 
-      // Đếm số lượng phiếu để sinh mã voucherNo chuẩn KS-2026-001
       const count = await db.collection(this.collectionName).countDocuments();
       const autoVoucherNo = dto.voucherNo || `KS-${year}-${String(count + 1).padStart(3, '0')}`;
 
@@ -71,6 +71,8 @@ export class SurveysService {
         created_at: new Date().toISOString(),
         created_by: dto.created_by || '',
         is_locked: !!dto.is_locked,
+        target_intakes: Array.isArray(dto.target_intakes) ? dto.target_intakes : [],
+        target_users: Array.isArray(dto.target_users) ? dto.target_users : [],
         sections: dto.sections || [
           { id: 'sec_default', title: 'Mục chưa có tiêu đề', description: '' }
         ],
@@ -89,7 +91,6 @@ export class SurveysService {
     }
   }
 
-  // 🟢 4. CẬP NHẬT PHIẾU KHẢO SÁT
   async update(id: string, dto: UpdateSurveyDto) {
     try {
       const { db } = await connectToDatabase();
@@ -103,6 +104,12 @@ export class SurveysService {
       if (dto.title !== undefined) updateData.title = dto.title;
       if (dto.description !== undefined) updateData.description = dto.description;
       if (dto.is_locked !== undefined) updateData.is_locked = dto.is_locked;
+      if (dto.target_intakes !== undefined) {
+        updateData.target_intakes = Array.isArray(dto.target_intakes) ? dto.target_intakes : [];
+      }
+      if (dto.target_users !== undefined) {
+        updateData.target_users = Array.isArray(dto.target_users) ? dto.target_users : [];
+      }
       if (dto.sections !== undefined) updateData.sections = dto.sections;
       if (dto.questions !== undefined) updateData.questions = dto.questions;
 
@@ -120,7 +127,12 @@ export class SurveysService {
 
       return {
         ...updatedDoc,
-        _id: updatedDoc._id.toString()
+        _id: updatedDoc._id.toString(),
+        target_intakes: Array.isArray(updatedDoc.target_intakes) ? updatedDoc.target_intakes : [],
+        target_users: Array.isArray(updatedDoc.target_users) ? updatedDoc.target_users : [],
+        sections: updatedDoc.sections || [],
+        questions: updatedDoc.questions || [],
+        responses: updatedDoc.responses || []
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
@@ -128,7 +140,6 @@ export class SurveysService {
     }
   }
 
-  // 🟢 5. XÓA PHIẾU KHẢO SÁT
   async delete(id: string) {
     try {
       const { db } = await connectToDatabase();
@@ -150,7 +161,6 @@ export class SurveysService {
     }
   }
 
-  // 🟢 6. NỘP BÀI KHẢO SÁT (GHI ĐÈ NẾU THỰC HIỆN LẠI)
   async submitResponse(surveyId: string, dto: SubmitSurveyResponseDto) {
     try {
       const { db } = await connectToDatabase();
@@ -176,13 +186,11 @@ export class SurveysService {
         submitted_at: new Date().toISOString()
       };
 
-      // Xóa câu trả lời cũ của sinh viên này (nếu nộp lại)
       await db.collection(this.collectionName).updateOne(
         { $or: [{ _id: queryId }, { _id: surveyId }] },
         { $pull: { responses: { student_id: dto.student_id } } as any }
       );
 
-      // Thêm câu trả lời mới
       await db.collection(this.collectionName).updateOne(
         { $or: [{ _id: queryId }, { _id: surveyId }] },
         { $push: { responses: responseObj } as any }

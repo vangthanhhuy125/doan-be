@@ -16,7 +16,10 @@ export class RegistrationFormsService {
           return {
             ...form,
             _id: form._id.toString(),
-            target_intakes: Array.isArray(form.target_intakes) ? form.target_intakes : [],
+            programs: (form.programs || []).map((p: any) => ({
+              ...p,
+              target_intakes: Array.isArray(p.target_intakes) ? p.target_intakes : [],
+            })),
             shared_permissions: form.shared_permissions || [],
             submissions: submissions.map(sub => ({
               ...sub,
@@ -52,7 +55,10 @@ export class RegistrationFormsService {
       return {
         ...form,
         _id: form._id.toString(),
-        target_intakes: Array.isArray(form.target_intakes) ? form.target_intakes : [],
+        programs: (form.programs || []).map((p: any) => ({
+          ...p,
+          target_intakes: Array.isArray(p.target_intakes) ? p.target_intakes : [],
+        })),
         shared_permissions: form.shared_permissions || [],
         submissions: submissions.map(sub => ({
           ...sub,
@@ -68,14 +74,18 @@ export class RegistrationFormsService {
   async create(payload: any) {
     try {
       const { db } = await connectToDatabase();
+      const formattedPrograms = (payload.programs || []).map((p: any) => ({
+        ...p,
+        target_intakes: Array.isArray(p.target_intakes) ? p.target_intakes : [],
+      }));
+
       const newForm = {
         title: payload.title || '',
         description: payload.description || '',
         created_at: payload.created_at || new Date().toISOString(),
         created_by: payload.created_by || payload.user_id || '',
         is_locked: payload.is_locked || false,
-        target_intakes: Array.isArray(payload.target_intakes) ? payload.target_intakes : [],
-        programs: payload.programs || [],
+        programs: formattedPrograms,
         shared_permissions: payload.shared_permissions || []
       };
       const result = await db.collection('RegistrationForms').insertOne(newForm);
@@ -126,8 +136,7 @@ export class RegistrationFormsService {
       const isEditingContent = 
         payload.title !== undefined || 
         payload.description !== undefined || 
-        payload.programs !== undefined ||
-        payload.target_intakes !== undefined;
+        payload.programs !== undefined;
 
       if (isEditingContent && !isCreator && !userPerm?.can_edit) {
         throw new ForbiddenException('Bạn không có quyền chỉnh sửa nội dung phiếu này!');
@@ -136,9 +145,11 @@ export class RegistrationFormsService {
       const updateData: any = {};
       if (payload.title !== undefined) updateData.title = payload.title;
       if (payload.description !== undefined) updateData.description = payload.description;
-      if (payload.programs !== undefined) updateData.programs = payload.programs;
-      if (payload.target_intakes !== undefined) {
-        updateData.target_intakes = Array.isArray(payload.target_intakes) ? payload.target_intakes : [];
+      if (payload.programs !== undefined) {
+        updateData.programs = (payload.programs || []).map((p: any) => ({
+          ...p,
+          target_intakes: Array.isArray(p.target_intakes) ? p.target_intakes : [],
+        }));
       }
       if (typeof payload.is_locked === 'boolean') updateData.is_locked = payload.is_locked;
       if (payload.shared_permissions !== undefined) updateData.shared_permissions = payload.shared_permissions;
@@ -157,7 +168,10 @@ export class RegistrationFormsService {
       return {
         ...updatedDoc,
         _id: updatedDoc._id.toString(),
-        target_intakes: Array.isArray(updatedDoc.target_intakes) ? updatedDoc.target_intakes : [],
+        programs: (updatedDoc.programs || []).map((p: any) => ({
+          ...p,
+          target_intakes: Array.isArray(p.target_intakes) ? p.target_intakes : [],
+        })),
         shared_permissions: updatedDoc.shared_permissions || [],
         submissions: submissions.map(sub => ({
           ...sub,
