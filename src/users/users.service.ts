@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, InternalServerErrorException, BadRequest
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
 import * as bcrypt from 'bcrypt';
+import * as jwt from 'jsonwebtoken';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Injectable()
@@ -141,58 +142,130 @@ export class UsersService {
     }
   }
 
-  async changePassword(userId: string, dto: ChangePasswordDto) {
-    const { oldPassword, newPassword, confirmPassword } = dto;
+  async changePassword(userId: string, dto: ChangePasswordDto, req?: any) {
+    const oldPassword = dto.oldPassword || (dto as any).currentPassword;
+    const newPassword = dto.newPassword;
+    const confirmPassword = dto.confirmPassword || (dto as any).confirmNewPassword || newPassword;
 
     if (newPassword !== confirmPassword) {
       throw new BadRequestException('Mật khẩu xác nhận không trùng khớp');
     }
-
     if (oldPassword === newPassword) {
       throw new BadRequestException('Mật khẩu mới không được trùng với mật khẩu cũ');
     }
 
     try {
       const { db } = await connectToDatabase();
-      let account: any = null;
 
-      if (ObjectId.isValid(userId)) {
+      // 🟢 1. Thu thập tất cả các định danh khả dĩ của tài khoản
+      const candidates: string[] = [userId];
+
+      // Giải mã token nếu có trong header request
+      const authHeader = req?.headers?.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
         try {
-          account = await db.collection('Accounts').findOne({ _id: new ObjectId(userId) });
+          const token = authHeader.substring(7);
+          const decoded: any = jwt.decode(token);
+          if (decoded) {
+            if (decoded.username) candidates.push(String(decoded.username));
+            if (decoded._id) candidates.push(String(decoded._id));
+            if (decoded.user_id) candidates.push(String(decoded.user_id));
+            if (decoded.student_id) candidates.push(String(decoded.student_id));
+          }
         } catch (e) {}
       }
 
+      if ((dto as any)?.username) {
+        candidates.push(String((dto as any).username));
+      }
+
+      // 🟢 2. Xây dựng bộ điều kiện tìm kiếm đa năng cho Accounts
+      const orConditions: any[] = [];
+      const addedKeys = new Set<string>();
+
+      candidates.filter(Boolean).forEach((c) => {
+        const strC = String(c).trim();
+        if (!strC || addedKeys.has(strC)) return;
+        addedKeys.add(strC);
+
+        // Khớp theo String
+        orConditions.push({ username: strC });
+        orConditions.push({ username: strC.toLowerCase() });
+        orConditions.push({ _id: strC });
+        orConditions.push({ user_id: strC });
+        orConditions.push({ nhan_su_id: strC });
+        orConditions.push({ personnel_id: strC });
+        orConditions.push({ student_id: strC });
+        orConditions.push({ email: strC });
+
+        // Khớp theo ObjectId
+        if (ObjectId.isValid(strC)) {
+          const objId = new ObjectId(strC);
+          orConditions.push({ _id: objId });
+          orConditions.push({ user_id: objId });
+          orConditions.push({ nhan_su_id: objId });
+          orConditions.push({ personnel_id: objId });
+        }
+      });
+
+      let account = await db.collection('Accounts').findOne({ $or: orConditions });
+
+      // 🟢 3. Fallback: Nếu chưa thấy, tra cứu gián tiếp qua bảng Users
       if (!account) {
-        account = await db.collection('Accounts').findOne({
-          $or: [{ user_id: userId }, { username: userId }]
+        const userOrConditions: any[] = [];
+        candidates.filter(Boolean).forEach((c) => {
+          const strC = String(c).trim();
+          userOrConditions.push({ student_id: strC }, { username: strC }, { _id: strC });
+          if (ObjectId.isValid(strC)) {
+            userOrConditions.push({ _id: new ObjectId(strC) });
+          }
         });
+
+        const matchedUser = await db.collection('Users').findOne({ $or: userOrConditions });
+        if (matchedUser) {
+          const uId = String(matchedUser._id);
+          const uSid = matchedUser.student_id;
+          const uName = matchedUser.username;
+
+          account = await db.collection('Accounts').findOne({
+            $or: [
+              { user_id: uId },
+              { user_id: ObjectId.isValid(uId) ? new ObjectId(uId) : uId },
+              ...(uSid ? [{ student_id: uSid }, { username: uSid }] : []),
+              ...(uName ? [{ username: uName }] : [])
+            ]
+          });
+        }
       }
 
       if (!account) {
         throw new NotFoundException('Không tìm thấy tài khoản');
       }
 
+      // 🟢 4. Kiểm tra mật khẩu cũ (hỗ trợ cả bcrypt hash lẫn text thuần)
       const dbPassword = account.password || '';
       let isMatch = false;
 
-      // Kiểm tra xem mật khẩu DB là hash bcrypt hay text thô
       if (dbPassword.startsWith('$2b$') || dbPassword.startsWith('$2a$')) {
         isMatch = await bcrypt.compare(oldPassword, dbPassword);
       } else {
-        // Trường hợp DB lưu text thô (123456)
         isMatch = dbPassword === oldPassword;
       }
 
       if (!isMatch) {
-        throw new BadRequestException('Mật khẩu cũ không chính xác');
+        throw new BadRequestException('Mật khẩu hiện tại không chính xác');
       }
 
-      // Hash mật khẩu mới bằng bcrypt
+      // 🟢 5. Hash mật khẩu mới bằng bcrypt và cập nhật
       const hashedPassword = await bcrypt.hash(newPassword, 10);
-
       await db.collection('Accounts').updateOne(
         { _id: account._id },
-        { $set: { password: hashedPassword, updatedAt: new Date().toISOString() } }
+        { 
+          $set: { 
+            password: hashedPassword, 
+            updatedAt: new Date().toISOString() 
+          } 
+        }
       );
 
       return { message: 'Đổi mật khẩu thành công' };
