@@ -1,10 +1,21 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { connectToDatabase } from '../../lib/mongodb';
 
 @Injectable()
-export class LogsService {
+export class LogsService implements OnModuleInit {
   private readonly logger = new Logger(LogsService.name);
+
+  // 🟢 Tự động tạo Index khi server khởi động (giải quyết triệt để lỗi tràn 32MB RAM khi sort)
+  async onModuleInit() {
+    try {
+      const { db } = await connectToDatabase();
+      await db.collection('SystemLogs').createIndex({ timestamp: -1 });
+      this.logger.log('Đã khởi tạo index cho collection SystemLogs thành công.');
+    } catch (error) {
+      this.logger.warn('Không thể tạo index cho SystemLogs:', error);
+    }
+  }
 
   // 🟢 Ghi log mới (Hỗ trợ lưu đầy đủ userName)
   async createLog(
@@ -29,14 +40,15 @@ export class LogsService {
     }
   }
 
-  // 🟢 Lấy danh sách toàn bộ log (Mới nhất xếp trước)
-  async findAll() {
+  // 🟢 Lấy danh sách log (Giới hạn bản ghi mới nhất & bật allowDiskUse phòng ngừa)
+  async findAll(limit: number = 500) {
     try {
       const { db } = await connectToDatabase();
       return await db
         .collection('SystemLogs')
-        .find()
+        .find({}, { allowDiskUse: true })
         .sort({ timestamp: -1 })
+        .limit(Number(limit))
         .toArray();
     } catch (error) {
       this.logger.error('Lỗi lấy danh sách log:', error);

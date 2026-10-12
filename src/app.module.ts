@@ -21,6 +21,7 @@ import { SurveysModule } from './surveys/surveys.module';
 import { LogsModule } from './logs/logs.module';
 import { LogsMiddleware } from './logs/logs.middleware';
 import { AttendanceModule } from './attendance/attendance.module';
+import { ClpiModule } from './clpi/clpi.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { AttendanceModule } from './attendance/attendance.module';
     SurveysModule,
     LogsModule,
     AttendanceModule,
+    ClpiModule
   ],
 })
 export class AppModule implements NestModule {
