@@ -20,6 +20,7 @@ import { PermissionsModule } from './permissions/permissions.module';
 import { SurveysModule } from './surveys/surveys.module';
 import { LogsModule } from './logs/logs.module';
 import { LogsMiddleware } from './logs/logs.middleware';
+import { AttendanceModule } from './attendance/attendance.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { LogsMiddleware } from './logs/logs.middleware';
     PermissionsModule,
     SurveysModule,
     LogsModule,
+    AttendanceModule,
   ],
 })
 export class AppModule implements NestModule {
