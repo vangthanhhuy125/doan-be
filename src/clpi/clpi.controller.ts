@@ -6,7 +6,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ClpiService } from './clpi.service';
 import { 
   UpdateTaskProgressDto, CreateEvidenceDto, SaveMonthlyReportDraftDto, 
-  SubmitMonthlyReportDto, SubmitSelfAssessmentDto, RequestRevisionDto, ApproveEvaluationDto 
+  SubmitMonthlyReportDto, SubmitSelfAssessmentDto, RequestRevisionDto, ApproveEvaluationDto,
+  CreateCycleDto, UpdateWeightsDto, CreatePersonnelDto 
 } from './clpi.dto';
 
 @Controller('clpi')
@@ -17,6 +18,21 @@ export class ClpiController {
   @Get('cycles/current')
   async getCurrentCycle() {
     return this.clpiService.getCurrentCycle();
+  }
+
+  @Get('cycles')
+  async getAllCycles() {
+    return this.clpiService.getAllCycles();
+  }
+
+  @Post('cycles')
+  async createCycle(@Body() dto: CreateCycleDto, @Req() req: any) {
+    return this.clpiService.createCycle(dto, req);
+  }
+
+  @Put('cycles/:id/lock')
+  async lockCycle(@Param('id') id: string) {
+    return this.clpiService.lockCycle(id);
   }
 
   // 2. Dashboard cán bộ
@@ -99,13 +115,13 @@ export class ClpiController {
   }
 
   @Get('evaluations/:id')
-  async getEvaluationDetail(@Param('id') id: string) {
-    return this.clpiService.getEvaluationDetail(id);
+  async getEvaluationDetail(@Param('id') id: string, @Req() req: any) {
+    return this.clpiService.getEvaluationDetail(id, req);
   }
 
   @Get('evaluations/:id/result')
-  async getEvaluationResult(@Param('id') id: string) {
-    return this.clpiService.getEvaluationDetail(id);
+  async getEvaluationResult(@Param('id') id: string, @Req() req: any) {
+    return this.clpiService.getEvaluationDetail(id, req);
   }
 
   // 6. Reviewer / Thẩm định hồ sơ
@@ -115,8 +131,8 @@ export class ClpiController {
   }
 
   @Get('review/:id')
-  async getReviewDetail(@Param('id') id: string) {
-    return this.clpiService.getEvaluationDetail(id);
+  async getReviewDetail(@Param('id') id: string, @Req() req: any) {
+    return this.clpiService.getEvaluationDetail(id, req);
   }
 
   @Post('review/:id/request-revision')
@@ -141,5 +157,39 @@ export class ClpiController {
   @Get('unit-dashboard')
   async getUnitDashboard(@Query('unitId') unitId?: string) {
     return this.clpiService.getUnitDashboard(unitId);
+  }
+
+  // 8. Bảng điều khiển BTV toàn khoa
+  @Get('admin-dashboard')
+  async getAdminDashboard() {
+    return this.clpiService.getAdminDashboard();
+  }
+
+  // 9. Cấu hình Bộ chỉ số & Trọng số
+  @Get('indicators')
+  async getIndicatorsConfig() {
+    return this.clpiService.getIndicatorsConfig();
+  }
+
+  @Put('indicators/weights')
+  async updateWeights(@Body() dto: UpdateWeightsDto) {
+    return this.clpiService.updateWeights(dto);
+  }
+
+  // 10. Quản lý nhân sự
+  @Get('personnel')
+  async getPersonnel() {
+    return this.clpiService.getPersonnel();
+  }
+
+  @Post('personnel')
+  async createPersonnel(@Body() dto: CreatePersonnelDto) {
+    return this.clpiService.createPersonnel(dto);
+  }
+
+  // 11. Báo cáo & Thống kê
+  @Get('analytics')
+  async getAnalytics() {
+    return this.clpiService.getAnalytics();
   }
 }

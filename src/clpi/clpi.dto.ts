@@ -127,3 +127,87 @@ export class ApproveEvaluationDto {
   @IsString()
   classification!: string;
 }
+
+// --- DTO BỔ SUNG CHO PHÂN HỆ QUẢN TRỊ BTV & HỆ THỐNG ---
+
+export class CreateCycleDto {
+  @IsNotEmpty({ message: 'Tên chu kỳ không được để trống' })
+  @IsString()
+  name!: string;
+
+  @IsNotEmpty({ message: 'Quý đánh giá không được để trống' })
+  @IsString()
+  quarter!: string;
+
+  @IsNotEmpty({ message: 'Năm đánh giá không được để trống' })
+  @IsNumber()
+  year!: number;
+
+  @IsNotEmpty()
+  @IsString()
+  startDate!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  endDate!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  selfDeadline!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  reviewDeadline!: string;
+
+  @IsOptional()
+  @IsArray()
+  units?: string[];
+
+  @IsOptional()
+  @IsString()
+  weightProfile?: string;
+}
+
+export class UpdateWeightsDto {
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  WPI!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  LEI!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  CEI!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  SDI!: number;
+}
+
+export class CreatePersonnelDto {
+  @IsNotEmpty()
+  @IsString()
+  code!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  name!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  position!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  unit!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  role!: string;
+}

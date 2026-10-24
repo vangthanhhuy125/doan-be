@@ -292,8 +292,6 @@ export class AnnouncementsService {
             <h2 style="margin: 0; font-size: 18px; text-transform: uppercase; letter-spacing: 1px;">Đoàn TNCS Hồ Chí Minh khoa Công nghệ Phần mềm</h2>
           </div>
           <div style="padding: 32px; background-color: #ffffff;">
-            <p style="margin-top: 0; font-weight: bold;">Xin chào các đồng chí cán bộ Đoàn,</p>
-            <p>Ban Chấp hành Đoàn khoa vừa triển khai nội dung thông báo mới chi tiết dưới đây:</p>
             <div style="background-color: #f8fafc; padding: 20px; border-left: 4px solid #1d92ff; border-radius: 8px; margin: 24px 0;">
               <h3 style="margin-top: 0; color: #0054a5; font-size: 16px;">${title}</h3>
               <p style="white-space: pre-wrap; margin-bottom: 0; font-size: 14px; color: #475569;">${content}</p>

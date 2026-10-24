@@ -4,6 +4,90 @@ import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class RegistrationFormsService {
+  private async resolveUserPermissions(db: any, existingForm: any, payload: any) {
+    const rawIds = [
+      payload?.user_id,
+      payload?.account_id,
+      payload?.profile_user_id,
+      payload?.created_by,
+      payload?.username,
+      payload?.student_id,
+      payload?._id
+    ].filter(Boolean).map(x => String(x).trim());
+
+    let isAdmin = 
+      payload?.is_admin === true || 
+      payload?.role === 'admin' || 
+      payload?.username === 'admin' ||
+      rawIds.map(x => x.toLowerCase()).includes('admin');
+
+    if (rawIds.length > 0) {
+      const objectIds = rawIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+      const userDoc = await db.collection('Accounts').findOne({
+        $or: [
+          { _id: { $in: objectIds } },
+          { username: { $in: rawIds } },
+          { user_id: { $in: rawIds } },
+          { student_id: { $in: rawIds } }
+        ]
+      });
+
+      if (userDoc) {
+        if (userDoc.role === 'admin' || userDoc.username === 'admin') {
+          isAdmin = true;
+        }
+        rawIds.push(
+          String(userDoc._id),
+          String(userDoc.username || ''),
+          String(userDoc.user_id || ''),
+          String(userDoc.student_id || '')
+        );
+      }
+    }
+
+    const creatorIds: string[] = [];
+    if (existingForm?.created_by) {
+      if (typeof existingForm.created_by === 'object') {
+        creatorIds.push(
+          String(existingForm.created_by._id || ''),
+          String(existingForm.created_by.user_id || ''),
+          String(existingForm.created_by.username || ''),
+          String(existingForm.created_by.student_id || '')
+        );
+      } else {
+        const cId = String(existingForm.created_by).trim();
+        creatorIds.push(cId);
+        if (ObjectId.isValid(cId)) {
+          const creatorDoc = await db.collection('Accounts').findOne({ _id: new ObjectId(cId) });
+          if (creatorDoc) {
+            creatorIds.push(
+              String(creatorDoc._id),
+              String(creatorDoc.username || ''),
+              String(creatorDoc.user_id || ''),
+              String(creatorDoc.student_id || '')
+            );
+          }
+        }
+      }
+    }
+
+    const cleanReqIds = Array.from(new Set(rawIds.filter(Boolean).map(s => s.toLowerCase())));
+    const cleanCreatorIds = Array.from(new Set(creatorIds.filter(Boolean).map(s => s.toLowerCase())));
+
+    const isCreator = 
+      isAdmin || 
+      cleanCreatorIds.length === 0 || 
+      cleanReqIds.some(id => cleanCreatorIds.includes(id));
+
+    const sharedList = existingForm?.shared_permissions || [];
+    const userPerm = sharedList.find((p: any) => {
+      const pIds = [String(p.user_id || ''), String(p.username || '')].filter(Boolean).map(s => s.toLowerCase());
+      return cleanReqIds.some(id => pIds.includes(id));
+    });
+
+    return { isAdmin, isCreator, userPerm };
+  }
+
   async findAll() {
     try {
       const { db } = await connectToDatabase();
@@ -117,13 +201,13 @@ export class RegistrationFormsService {
         throw new NotFoundException('Không tìm thấy phiếu đăng ký để cập nhật');
       }
 
-      const requestUserId = payload.user_id || payload.created_by || '';
-      const isCreator = !existingForm.created_by || String(existingForm.created_by) === String(requestUserId);
-      
-      const sharedList = existingForm.shared_permissions || [];
-      const userPerm = sharedList.find((p: any) => String(p.user_id) === String(requestUserId));
+      const { isCreator, userPerm } = await this.resolveUserPermissions(db, existingForm, payload);
 
-      if (payload.shared_permissions !== undefined && !isCreator) {
+      const isUpdatingPermissions = 
+        payload.shared_permissions !== undefined && 
+        JSON.stringify(payload.shared_permissions) !== JSON.stringify(existingForm.shared_permissions || []);
+
+      if (isUpdatingPermissions && !isCreator) {
         throw new ForbiddenException('Chỉ người tạo phiếu mới có quyền quản lý chia sẻ!');
       }
 
@@ -134,9 +218,9 @@ export class RegistrationFormsService {
       }
 
       const isEditingContent = 
-        payload.title !== undefined || 
-        payload.description !== undefined || 
-        payload.programs !== undefined;
+        (payload.title !== undefined && payload.title !== existingForm.title) || 
+        (payload.description !== undefined && payload.description !== existingForm.description) || 
+        (payload.programs !== undefined && JSON.stringify(payload.programs) !== JSON.stringify(existingForm.programs || []));
 
       if (isEditingContent && !isCreator && !userPerm?.can_edit) {
         throw new ForbiddenException('Bạn không có quyền chỉnh sửa nội dung phiếu này!');
@@ -202,10 +286,7 @@ export class RegistrationFormsService {
         throw new NotFoundException('Không tìm thấy phiếu đăng ký để xóa');
       }
 
-      const requestUserId = payload?.user_id || payload?.created_by || '';
-      const isCreator = !existingForm.created_by || String(existingForm.created_by) === String(requestUserId);
-      const sharedList = existingForm.shared_permissions || [];
-      const userPerm = sharedList.find((p: any) => String(p.user_id) === String(requestUserId));
+      const { isCreator, userPerm } = await this.resolveUserPermissions(db, existingForm, payload);
 
       if (!isCreator && !userPerm?.can_delete) {
         throw new ForbiddenException('Bạn không có quyền xóa phiếu này!');

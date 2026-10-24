@@ -18,8 +18,6 @@ import { UsersModule } from './users/users.module';
 import { RegistrationFormsModule } from './registration-forms/registration-forms.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { SurveysModule } from './surveys/surveys.module';
-import { LogsModule } from './logs/logs.module';
-import { LogsMiddleware } from './logs/logs.middleware';
 import { AttendanceModule } from './attendance/attendance.module';
 import { ClpiModule } from './clpi/clpi.module';
 
@@ -47,7 +45,6 @@ import { ClpiModule } from './clpi/clpi.module';
     RegistrationFormsModule,
     PermissionsModule,
     SurveysModule,
-    LogsModule,
     AttendanceModule,
     ClpiModule
   ],
@@ -55,7 +52,7 @@ import { ClpiModule } from './clpi/clpi.module';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
-      .apply(LogsMiddleware)
+      .apply()
       .forRoutes('*'); 
   }
 }
