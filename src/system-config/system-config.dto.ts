@@ -3,12 +3,12 @@ export class UpdateSystemConfigDto {
   academicYears?: string[];
   semesters?: string[];
   classBranches?: string[];
-
   documents?: string[];
-  
+  positions?: string[];
+
   achievements?: {
     academicYear: string;
-    image?: string; 
+    image?: string;
     content: string;
   }[];
 
@@ -22,10 +22,10 @@ export class UpdateSystemConfigDto {
     address: string;
     email: string;
     fanpage: string;
-    introduction?: string;   
-    mission?: string;       
-    vocation?: string;       
-    structure?: string;      
-    softwareIntro?: string;  
+    introduction?: string;
+    mission?: string;
+    vocation?: string;
+    structure?: string;
+    softwareIntro?: string;
   };
 }
