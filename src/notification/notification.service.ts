@@ -6,12 +6,43 @@ import * as nodemailer from 'nodemailer';
 @Injectable()
 export class AnnouncementsService {
 
+  private parseArrayField(val: any): string[] {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.map(v => String(v).trim()).filter(Boolean);
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) return parsed.map(v => String(v).trim()).filter(Boolean);
+      } catch {
+        return val.split(',').map(v => v.trim()).filter(Boolean);
+      }
+    }
+    return [];
+  }
+
+  private extractIntake(u: any): string {
+    const classStr = u?.class_name || u?.class || u?.chi_doan || '';
+    const match = String(classStr).match(/(?:19|20)\d{2}/);
+    if (match) return `K${match[0]}`;
+    const sid = String(u?.student_id || u?.mssv || '').trim();
+    if (sid.length >= 2) {
+      const prefix = parseInt(sid.substring(0, 2), 10);
+      if (!isNaN(prefix) && prefix >= 15 && prefix <= 35) {
+        return `K20${prefix}`;
+      }
+    }
+    return 'Khác';
+  }
+
+  private extractBranch(u: any): string {
+    return String(u?.class_name || u?.class || u?.chi_doan || u?.unitBranch || u?.unit || '').trim();
+  }
+
   async findAll(userId?: string, isManage: boolean = false) {
     try {
       const { db } = await connectToDatabase();
       const allAnnouncements = await db.collection('Announcements').find().sort({ posted_at: -1 }).toArray();
 
-      // 1. Màn hình Quản lý / Tạo thông báo: TRẢ VỀ TOÀN BỘ (Không lọc)
       if (isManage) {
         return allAnnouncements.map(item => ({
           ...item,
@@ -20,7 +51,6 @@ export class AnnouncementsService {
         }));
       }
 
-      // 2. Không có userId: Chỉ hiện các thông báo ALL
       if (!userId || userId === 'undefined') {
         return allAnnouncements
           .filter((item: any) => !item.emailTarget || item.emailTarget === 'ALL')
@@ -37,27 +67,45 @@ export class AnnouncementsService {
         userObjectId = new ObjectId(cleanUserId);
       } catch (e) {}
 
-      // 3. Màn hình Profile cá nhân: Lọc theo người nhận
+      // Lấy thông tin user hiện tại để đối chiếu Khóa / Chi đoàn / MSSV
+      const userQuery = userObjectId ? { $or: [{ _id: userObjectId }, { _id: cleanUserId as any }] } : { _id: cleanUserId as any };
+      const currentUser: any = await db.collection('Users').findOne(userQuery);
+      let personnelRecord: any = null;
+      if (currentUser?.student_id) {
+        personnelRecord = await db.collection('Personnel').findOne({
+          $or: [{ student_id: currentUser.student_id }, { mssv: currentUser.student_id }]
+        });
+      }
+
+      const userProfile = { ...personnelRecord, ...currentUser };
+      const userIntake = this.extractIntake(userProfile);
+      const userBranch = this.extractBranch(userProfile).toLowerCase();
+      const personnelIdStr = personnelRecord?._id ? personnelRecord._id.toString() : '';
+
       const filteredAnnouncements = allAnnouncements.filter((item: any) => {
         if (!item.emailTarget || item.emailTarget === 'ALL') {
           return true;
         }
 
+        if (item.emailTarget === 'BY_INTAKE') {
+          const intakes = this.parseArrayField(item.targetIntakes);
+          return intakes.includes(userIntake);
+        }
+
+        if (item.emailTarget === 'BY_BRANCH') {
+          const branches = this.parseArrayField(item.targetBranches).map(b => b.toLowerCase());
+          return Boolean(userBranch) && branches.includes(userBranch);
+        }
+
         if (item.emailTarget === 'SPECIFIC') {
-          let receiverIds = item.receiverIds;
-
-          if (typeof receiverIds === 'string') {
-            try {
-              receiverIds = JSON.parse(receiverIds);
-            } catch (e) {
-              receiverIds = [receiverIds];
-            }
-          }
-
-          if (Array.isArray(receiverIds) && receiverIds.length > 0) {
-            return receiverIds.some((id: any) => {
-              const idStr = String(id).trim();
-              return idStr === cleanUserId || (userObjectId && idStr === userObjectId.toString());
+          const receiverIds = this.parseArrayField(item.receiverIds);
+          if (receiverIds.length > 0) {
+            return receiverIds.some((idStr: string) => {
+              return (
+                idStr === cleanUserId ||
+                (userObjectId && idStr === userObjectId.toString()) ||
+                (personnelIdStr && idStr === personnelIdStr)
+              );
             });
           }
         }
@@ -75,7 +123,6 @@ export class AnnouncementsService {
     }
   }
 
-  // 🟢 BỔ SUNG: Đánh dấu thông báo đã đọc theo userId
   async markAsRead(id: string, userId: string) {
     try {
       if (!userId || userId === 'undefined') {
@@ -93,7 +140,7 @@ export class AnnouncementsService {
       const cleanUserId = String(userId).trim();
 
       await db.collection('Announcements').updateOne(
-        { $or: [{ _id: queryId }, { _id: id }] },
+        { $or: [{ _id: queryId }, { _id: id as any }] },
         { $addToSet: { read_by: cleanUserId } }
       );
 
@@ -106,25 +153,21 @@ export class AnnouncementsService {
   async create(payload: any, file?: any) {
     try {
       const { db } = await connectToDatabase();
-      const shouldSendEmail = payload.sendEmail === 'true';
+      const shouldSendEmail = payload.sendEmail === 'true' || payload.sendEmail === true;
 
-      // Chuẩn hóa receiverIds về đúng Mảng trước khi lưu
-      let parsedReceiverIds = payload.receiverIds || [];
-      if (typeof parsedReceiverIds === 'string') {
-        try {
-          parsedReceiverIds = JSON.parse(parsedReceiverIds);
-        } catch (e) {
-          parsedReceiverIds = [parsedReceiverIds];
-        }
-      }
+      const parsedReceiverIds = this.parseArrayField(payload.receiverIds);
+      const parsedTargetIntakes = this.parseArrayField(payload.targetIntakes);
+      const parsedTargetBranches = this.parseArrayField(payload.targetBranches);
 
       const newNotice: any = {
         title: payload.title,
         content: payload.content,
         posted_at: payload.posted_at || new Date().toISOString(),
-        emailTarget: payload.emailTarget || 'ALL', 
+        emailTarget: payload.emailTarget || 'ALL',
+        targetIntakes: parsedTargetIntakes,
+        targetBranches: parsedTargetBranches,
         receiverIds: parsedReceiverIds,
-        read_by: [] // 🟢 Mặc định khởi tạo danh sách đã đọc
+        read_by: []
       };
 
       if (file) {
@@ -151,16 +194,11 @@ export class AnnouncementsService {
   async update(id: string, payload: any, file?: any) {
     try {
       const { db } = await connectToDatabase();
-      const shouldSendEmail = payload.sendEmail === 'true';
+      const shouldSendEmail = payload.sendEmail === 'true' || payload.sendEmail === true;
 
-      let parsedReceiverIds = payload.receiverIds;
-      if (typeof parsedReceiverIds === 'string') {
-        try {
-          parsedReceiverIds = JSON.parse(parsedReceiverIds);
-        } catch (e) {
-          parsedReceiverIds = [parsedReceiverIds];
-        }
-      }
+      const parsedReceiverIds = this.parseArrayField(payload.receiverIds);
+      const parsedTargetIntakes = this.parseArrayField(payload.targetIntakes);
+      const parsedTargetBranches = this.parseArrayField(payload.targetBranches);
 
       let queryId: any;
       try { queryId = new ObjectId(id); } catch { queryId = id; }
@@ -169,7 +207,9 @@ export class AnnouncementsService {
         title: payload.title,
         content: payload.content,
         posted_at: payload.posted_at,
-        emailTarget: payload.emailTarget,
+        emailTarget: payload.emailTarget || 'ALL',
+        targetIntakes: parsedTargetIntakes,
+        targetBranches: parsedTargetBranches,
         receiverIds: parsedReceiverIds,
       };
 
@@ -180,10 +220,12 @@ export class AnnouncementsService {
           size: file.size,
           buffer: file.buffer.toString('base64')
         };
+      } else if (payload.removeExistingFile === 'true') {
+        updateData.file = null;
       }
 
       const result = await db.collection('Announcements').findOneAndUpdate(
-        { $or: [{ _id: queryId }, { _id: id }] },
+        { $or: [{ _id: queryId }, { _id: id as any }] },
         { $set: updateData },
         { returnDocument: 'after' }
       );
@@ -215,7 +257,7 @@ export class AnnouncementsService {
       try { queryId = new ObjectId(id); } catch { queryId = id; }
 
       const result = await db.collection('Announcements').deleteOne({
-        $or: [{ _id: queryId }, { _id: id }]
+        $or: [{ _id: queryId }, { _id: id as any }]
       });
 
       if (result.deletedCount === 0) {
@@ -239,33 +281,87 @@ export class AnnouncementsService {
       }
 
       const { db } = await connectToDatabase();
-      let query = {};
+      const targetMode = payload.emailTarget || 'ALL';
+      const emailSet = new Set<string>();
 
-      if (payload.emailTarget === 'SPECIFIC' && payload.receiverIds) {
-        const parsedIds = typeof payload.receiverIds === 'string' ? JSON.parse(payload.receiverIds) : payload.receiverIds;
-        if (Array.isArray(parsedIds) && parsedIds.length > 0) {
-          const objectIds = parsedIds.map((id: string) => {
-            try { return new ObjectId(id); } catch { return id; }
+      if (targetMode === 'ALL') {
+        // Lấy toàn bộ từ cả Personnel và Users
+        const [personnelList, usersList] = await Promise.all([
+          db.collection('Personnel').find({}, { projection: { email: 1, student_id: 1, mssv: 1 } }).toArray(),
+          db.collection('Users').find({}, { projection: { email: 1, student_id: 1 } }).toArray(),
+        ]);
+
+        [...personnelList, ...usersList].forEach((u: any) => {
+          const email = u.email || (u.student_id || u.mssv ? `${u.student_id || u.mssv}@gm.uit.edu.vn` : null);
+          if (email && String(email).includes('@')) {
+            emailSet.add(String(email).trim().toLowerCase());
+          }
+        });
+      } else {
+        // Phạm vi cụ thể: BY_INTAKE, BY_BRANCH, SPECIFIC
+        // 1. Ưu tiên lấy danh sách receiverEmails do FE đã lọc chính xác
+        const directEmails = this.parseArrayField(payload.receiverEmails);
+        directEmails.forEach(e => {
+          if (e.includes('@')) emailSet.add(e.toLowerCase());
+        });
+
+        // 2. Truy vấn bổ sung theo receiverIds từ cả 2 collection Personnel và Users (đề phòng thiếu trường email trên FE)
+        const receiverIds = this.parseArrayField(payload.receiverIds);
+        if (receiverIds.length > 0) {
+          const idFilters: any[] = [];
+          receiverIds.forEach(id => {
+            idFilters.push(id);
+            if (ObjectId.isValid(id)) {
+              idFilters.push(new ObjectId(id));
+            }
           });
-          query = { _id: { $in: objectIds } };
+
+          const [matchedPersonnel, matchedUsers] = await Promise.all([
+            db.collection('Personnel').find({
+              $or: [{ _id: { $in: idFilters } }, { student_id: { $in: receiverIds } }, { mssv: { $in: receiverIds } }]
+            }).toArray(),
+            db.collection('Users').find({
+              $or: [{ _id: { $in: idFilters } }, { student_id: { $in: receiverIds } }]
+            }).toArray(),
+          ]);
+
+          [...matchedPersonnel, ...matchedUsers].forEach((u: any) => {
+            const email = u.email || (u.student_id || u.mssv ? `${u.student_id || u.mssv}@gm.uit.edu.vn` : null);
+            if (email && String(email).includes('@')) {
+              emailSet.add(String(email).trim().toLowerCase());
+            }
+          });
+        }
+
+        // 3. Nếu vẫn trống (trường hợp gọi API trực tiếp không truyền receiverIds), tự lọc theo targetIntakes / targetBranches
+        if (emailSet.size === 0 && (targetMode === 'BY_INTAKE' || targetMode === 'BY_BRANCH')) {
+          const allPersonnel = await db.collection('Personnel').find().toArray();
+          const targetIntakes = this.parseArrayField(payload.targetIntakes);
+          const targetBranches = this.parseArrayField(payload.targetBranches).map(b => b.toLowerCase());
+
+          allPersonnel.forEach((u: any) => {
+            const isMatch =
+              (targetMode === 'BY_INTAKE' && targetIntakes.includes(this.extractIntake(u))) ||
+              (targetMode === 'BY_BRANCH' && targetBranches.includes(this.extractBranch(u).toLowerCase()));
+
+            if (isMatch) {
+              const email = u.email || (u.student_id || u.mssv ? `${u.student_id || u.mssv}@gm.uit.edu.vn` : null);
+              if (email && String(email).includes('@')) {
+                emailSet.add(String(email).trim().toLowerCase());
+              }
+            }
+          });
         }
       }
 
-      const users = await db.collection('Users').find(query, { projection: { email: 1, student_id: 1 } }).toArray();
-      
-      const emailList = users
-        .map(u => {
-          if (u.email) return u.email;
-          return u.student_id ? `${u.student_id}@gm.uit.edu.vn` : null;
-        })
-        .filter((email): email is string => !!email);
+      const emailList = Array.from(emailSet);
 
       if (emailList.length === 0) {
-        console.log('Không có email nào thỏa mãn để gửi.');
+        console.log(`Không có email nào thỏa mãn phạm vi [${targetMode}] để gửi.`);
         return;
       }
 
-      console.log(`Bắt đầu gửi mail thật tới ${emailList.length} địa chỉ qua Gmail SMTP...`);
+      console.log(`Bắt đầu gửi mail phạm vi [${targetMode}] tới ${emailList.length} địa chỉ...`);
 
       const transporter = nodemailer.createTransport({
         service: 'gmail',
@@ -283,7 +379,7 @@ export class AnnouncementsService {
 
       const attachments = file ? [{
         filename: file.originalname,
-        content: Buffer.from(file.buffer, 'base64'),
+        content: file.buffer,
       }] : [];
 
       const htmlContent = `
@@ -304,19 +400,21 @@ export class AnnouncementsService {
         </div>
       `;
 
+      // Dùng bcc khi gửi nhiều người để bảo mật danh sách email của đoàn viên/sinh viên
       const mailOptions = {
         from: `"Đoàn khoa Công nghệ Phần mềm (ĐH CNTT - ĐHQG-TPHCM)" <${mailUser}>`,
-        to: emailList.join(','),
+        to: emailList.length === 1 ? emailList[0] : mailUser,
+        bcc: emailList.length > 1 ? emailList.join(',') : undefined,
         subject: `[THÔNG BÁO] ${title}`,
         html: htmlContent,
         attachments: attachments
       };
 
       const info = await transporter.sendMail(mailOptions);
-      console.log('Tiến trình gửi mail thật hoàn tất. MessageId:', info.messageId);
+      console.log('Tiến trình gửi mail hoàn tất. MessageId:', info.messageId);
 
     } catch (error) {
-      console.error('Lỗi hệ thống khi gửi Gmail thật:', error);
+      console.error('Lỗi hệ thống khi gửi Gmail:', error);
     }
   }
 }

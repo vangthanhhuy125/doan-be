@@ -39,6 +39,53 @@ export class AttendanceService {
     return { _id: id };
   }
 
+  private isSessionExpired(session: any): boolean {
+    if (!session?.date || !session?.end_time) return false;
+    try {
+      const endDateTime = new Date(`${session.date}T${session.end_time}:00+07:00`);
+      if (isNaN(endDateTime.getTime())) return false;
+      return new Date().getTime() > endDateTime.getTime();
+    } catch {
+      return false;
+    }
+  }
+
+  private formatVietnamTime(date: Date = new Date()): string {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour12: false,
+    }).formatToParts(date);
+
+    const map: Record<string, string> = {};
+    for (const p of parts) {
+      map[p.type] = p.value;
+    }
+
+    return `${map.hour}:${map.minute}:${map.second} ${Number(map.day)}/${Number(map.month)}/${map.year}`;
+  }
+
+  private getVietnamDateISO(date: Date = new Date()): string {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+
+    const map: Record<string, string> = {};
+    for (const p of parts) {
+      map[p.type] = p.value;
+    }
+
+    return `${map.year}-${map.month}-${map.day}`;
+  }
+
   async findAll(queryUserId?: string, req?: any) {
     try {
       const { db } = await connectToDatabase();
@@ -46,7 +93,6 @@ export class AttendanceService {
 
       let filter: any = {};
 
-      // Nếu yêu cầu lọc theo user và không phải admin: chỉ lấy phiếu do mình tạo HOẶC được chia sẻ
       if (userId && role !== 'admin' && username !== 'admin') {
         const uId = userId.toLowerCase();
         const uName = username.toLowerCase();
@@ -65,11 +111,29 @@ export class AttendanceService {
         };
       }
 
-      return await db
+      const sessions = await db
         .collection<any>(this.collectionName)
         .find(filter)
         .sort({ created_at: -1 })
         .toArray();
+
+      const expiredIds: any[] = [];
+      const syncedSessions = sessions.map((session) => {
+        if (!session.is_locked && this.isSessionExpired(session)) {
+          expiredIds.push(session._id);
+          return { ...session, is_locked: true };
+        }
+        return session;
+      });
+
+      if (expiredIds.length > 0) {
+        await db.collection<any>(this.collectionName).updateMany(
+          { _id: { $in: expiredIds } },
+          { $set: { is_locked: true, updated_at: new Date().toISOString() } }
+        );
+      }
+
+      return syncedSessions;
     } catch (error) {
       throw new InternalServerErrorException('Lỗi khi tải danh sách buổi điểm danh');
     }
@@ -84,6 +148,15 @@ export class AttendanceService {
       if (!session) {
         throw new NotFoundException('Không tìm thấy phiên điểm danh');
       }
+
+      if (!session.is_locked && this.isSessionExpired(session)) {
+        await db.collection<any>(this.collectionName).updateOne(
+          targetQuery,
+          { $set: { is_locked: true, updated_at: new Date().toISOString() } }
+        );
+        return { ...session, is_locked: true };
+      }
+
       return session;
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
@@ -99,10 +172,10 @@ export class AttendanceService {
       const count = await db.collection<any>(this.collectionName).countDocuments();
       const code = `DD-${new Date().getFullYear()}-${String(count + 1).padStart(3, '0')}`;
 
-      const newSession = {
+      const newSession: any = {
         title: dto.title,
         code,
-        date: dto.date || new Date().toISOString().split('T')[0],
+        date: dto.date || this.getVietnamDateISO(),
         start_time: dto.start_time || '07:30',
         end_time: dto.end_time || '11:30',
         location: dto.location || 'Văn phòng Đoàn khoa',
@@ -115,6 +188,10 @@ export class AttendanceService {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
+
+      if (this.isSessionExpired(newSession)) {
+        newSession.is_locked = true;
+      }
 
       const result = await db.collection<any>(this.collectionName).insertOne(newSession);
       return { ...newSession, _id: result.insertedId };
@@ -147,6 +224,11 @@ export class AttendanceService {
       if (dto.is_locked !== undefined) updateData.is_locked = Boolean(dto.is_locked);
       if (dto.records !== undefined) updateData.records = dto.records;
       if (dto.shared_users !== undefined) updateData.shared_users = dto.shared_users;
+
+      const merged = { ...existing, ...updateData };
+      if (dto.is_locked === undefined && this.isSessionExpired(merged)) {
+        updateData.is_locked = true;
+      }
 
       await db.collection<any>(this.collectionName).updateOne(targetQuery, { $set: updateData });
       return await db.collection<any>(this.collectionName).findOne(targetQuery);
@@ -181,6 +263,17 @@ export class AttendanceService {
       if (!session) {
         throw new NotFoundException('Không tìm thấy phiên điểm danh');
       }
+
+      if (this.isSessionExpired(session)) {
+        if (!session.is_locked) {
+          await db.collection<any>(this.collectionName).updateOne(
+            targetQuery,
+            { $set: { is_locked: true, updated_at: new Date().toISOString() } }
+          );
+        }
+        throw new BadRequestException('Đã hết thời gian điểm danh! Phiếu điểm danh đã tự động khóa.');
+      }
+
       if (session.is_locked) {
         throw new BadRequestException('Buổi điểm danh này đã bị khóa!');
       }
@@ -207,7 +300,7 @@ export class AttendanceService {
       }
 
       const now = new Date();
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')} ${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
+      const timeStr = this.formatVietnamTime(now);
 
       const currentRecords: any[] = Array.isArray(session.records) ? session.records : [];
       const existingIdx = currentRecords.findIndex(r => String(r.student_id).trim() === sid);
