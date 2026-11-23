@@ -1,4 +1,162 @@
-import { IsNotEmpty, IsString, IsNumber, IsOptional, IsArray, IsObject, Min, Max, IsBoolean } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsArray,
+  IsObject,
+  Min,
+  Max,
+  IsBoolean,
+} from 'class-validator';
+
+export class CreateClpiTaskDto {
+  @IsNotEmpty({ message: 'Tên công việc không được để trống' })
+  @IsString()
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  cycleId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  cycleName?: string;
+
+  @IsOptional()
+  @IsString()
+  activityId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  activityName?: string;
+
+  @IsOptional()
+  @IsString()
+  shortDescription?: string;
+
+  @IsNotEmpty({ message: 'Mô tả công việc không được để trống' })
+  @IsString()
+  description!: string;
+
+  @IsNotEmpty({ message: 'Độ ưu tiên không được để trống' })
+  @IsString()
+  priority!: string;
+
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @IsNotEmpty({ message: 'Hạn hoàn thành không được để trống' })
+  @IsString()
+  deadline!: string;
+
+  @IsNotEmpty({ message: 'Cán bộ chịu trách nhiệm chính không được để trống' })
+  @IsString()
+  primaryAssigneeId!: string;
+
+  @IsOptional()
+  @IsString()
+  primaryAssigneeName?: string;
+
+  @IsOptional()
+  @IsArray()
+  collaborators?: { id: string; name: string }[];
+
+  @IsNotEmpty({ message: 'Phải chọn ít nhất 01 chỉ số CLPI' })
+  @IsArray()
+  indicators!: string[];
+
+  @IsNotEmpty({ message: 'Phải nhập ít nhất 01 sản phẩm đầu ra dự kiến' })
+  @IsArray()
+  expectedOutputs!: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  requireEvidence?: boolean;
+
+  @IsOptional()
+  @IsString()
+  assignedById?: string;
+
+  @IsOptional()
+  @IsString()
+  assignedByName?: string;
+}
+
+export class UpdateClpiTaskDto {
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  cycleId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  cycleName?: string;
+
+  @IsOptional()
+  @IsString()
+  activityId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  activityName?: string;
+
+  @IsOptional()
+  @IsString()
+  shortDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  priority?: string;
+
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsString()
+  deadline?: string;
+
+  @IsOptional()
+  @IsString()
+  primaryAssigneeId?: string;
+
+  @IsOptional()
+  @IsString()
+  primaryAssigneeName?: string;
+
+  @IsOptional()
+  @IsArray()
+  collaborators?: { id: string; name: string }[];
+
+  @IsOptional()
+  @IsArray()
+  indicators?: string[];
+
+  @IsOptional()
+  @IsArray()
+  expectedOutputs?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  requireEvidence?: boolean;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsNumber()
+  progress?: number;
+}
 
 export class UpdateTaskProgressDto {
   @IsNumber()
@@ -126,9 +284,15 @@ export class ApproveEvaluationDto {
   @IsNotEmpty({ message: 'Xếp loại không được để trống' })
   @IsString()
   classification!: string;
-}
 
-// --- DTO BỔ SUNG CHO PHÂN HỆ QUẢN TRỊ BTV & HỆ THỐNG ---
+  @IsOptional()
+  @IsString()
+  strengths?: string;
+
+  @IsOptional()
+  @IsString()
+  developmentRecommendation?: string;
+}
 
 export class CreateCycleDto {
   @IsNotEmpty({ message: 'Tên chu kỳ không được để trống' })
@@ -210,4 +374,52 @@ export class CreatePersonnelDto {
   @IsNotEmpty()
   @IsString()
   role!: string;
+}
+
+export class UpdatePersonnelDto {
+  @IsOptional()
+  @IsString()
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  position?: string;
+
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @IsOptional()
+  @IsString()
+  role?: string;
+}
+
+export class CreateWeightProfileDto {
+  @IsNotEmpty({ message: 'Tên bộ trọng số không được để trống' })
+  @IsString()
+  title!: string;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  WPI!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  LEI!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  CEI!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  SDI!: number;
 }

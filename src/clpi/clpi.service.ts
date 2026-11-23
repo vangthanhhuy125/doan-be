@@ -1,11 +1,27 @@
-import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
 import * as jwt from 'jsonwebtoken';
-import { 
-  UpdateTaskProgressDto, CreateEvidenceDto, SaveMonthlyReportDraftDto, 
-  SubmitMonthlyReportDto, SubmitSelfAssessmentDto, RequestRevisionDto, ApproveEvaluationDto,
-  CreateCycleDto, UpdateWeightsDto, CreatePersonnelDto
+import {
+  CreateClpiTaskDto,
+  UpdateClpiTaskDto,
+  UpdateTaskProgressDto,
+  CreateEvidenceDto,
+  SaveMonthlyReportDraftDto,
+  SubmitMonthlyReportDto,
+  SubmitSelfAssessmentDto,
+  RequestRevisionDto,
+  ApproveEvaluationDto,
+  CreateCycleDto,
+  UpdateWeightsDto,
+  CreatePersonnelDto,
+  UpdatePersonnelDto,
+  CreateWeightProfileDto,
 } from './clpi.dto';
 
 @Injectable()
@@ -17,11 +33,14 @@ export class ClpiService {
   private colEvaluations = 'ClpiEvaluations';
   private colRevisions = 'ClpiRevisionRequests';
   private colSettings = 'ClpiSettings';
-  private colPersonnel = 'ClpiPersonnel';
+  private colUsers = 'Users';
 
-  private resolveUserInfo(req: any, fallbackId?: string): { userId: string; fullName: string; role: string } {
+  private resolveUserInfo(
+    req: any,
+    fallbackId?: string
+  ): { userId: string; fullName: string; role: string } {
     let userId = fallbackId ? String(fallbackId).trim() : '';
-    let fullName = 'Cán bộ Đoàn';
+    let fullName = '';
     let role = 'officer';
 
     const headerId = req?.headers?.['x-user-id'];
@@ -33,7 +52,9 @@ export class ClpiService {
         const token = authHeader.substring(7);
         const decoded: any = jwt.decode(token);
         if (decoded) {
-          if (!userId) userId = String(decoded._id || decoded.user_id || decoded.id || decoded.sub || '');
+          if (!userId) {
+            userId = String(decoded._id || decoded.user_id || decoded.id || decoded.sub || '');
+          }
           fullName = decoded.displayName || decoded.full_name || decoded.name || fullName;
           role = decoded.role || role;
         }
@@ -48,27 +69,86 @@ export class ClpiService {
     return { _id: id };
   }
 
+  private normalizeIsoDate(dateStr?: string): string {
+    if (!dateStr) return '';
+    const trimmed = String(dateStr).trim();
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+      const [d, m, y] = trimmed.split('/');
+      return `${y}-${m}-${d}`;
+    }
+    return trimmed.slice(0, 10);
+  }
+
+  private getLastDayOfMonthStr(monthYear: string): string {
+    const parts = String(monthYear || '').split('/');
+    if (parts.length === 2) {
+      const month = parseInt(parts[0], 10);
+      const year = parseInt(parts[1], 10);
+      if (!isNaN(month) && !isNaN(year) && month >= 1 && month <= 12) {
+        const lastDay = new Date(year, month, 0).getDate();
+        return `${String(lastDay).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+      }
+    }
+    const now = new Date();
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    return `${String(lastDay).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(
+      2,
+      '0'
+    )}/${now.getFullYear()}`;
+  }
+
+  private computeClassification(score: number): string {
+    if (score >= 90) return 'Xuất sắc';
+    if (score >= 80) return 'Tốt';
+    if (score >= 65) return 'Đạt';
+    if (score >= 50) return 'Cần hỗ trợ';
+    return 'Chưa đạt';
+  }
+
+  private async getUserProfile(db: any, userId: string, fallbackName = '') {
+    if (!userId) {
+      return {
+        fullName: fallbackName || 'Cán bộ Đoàn',
+        officerCode: '',
+        positionName: 'Cán bộ Đoàn - Hội',
+        unitBranch: 'Đoàn Khoa Công nghệ Phần mềm',
+        avatarUrl: '',
+      };
+    }
+
+    const conditions: any[] = [{ _id: userId }, { student_id: userId }, { mssv: userId }];
+    if (ObjectId.isValid(userId)) {
+      conditions.push({ _id: new ObjectId(userId) });
+    }
+
+    const userDoc: any = await db.collection(this.colUsers).findOne({ $or: conditions });
+    const positions: string[] = Array.isArray(userDoc?.positions)
+      ? userDoc.positions.filter(Boolean)
+      : userDoc?.position || userDoc?.chuc_vu
+      ? String(userDoc.position || userDoc.chuc_vu)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+
+    return {
+      fullName: userDoc?.full_name || userDoc?.name || fallbackName || 'Cán bộ Đoàn',
+      officerCode: userDoc?.student_id || userDoc?.mssv || '',
+      positionName: positions.length > 0 ? positions.join(', ') : 'Ủy viên BCH',
+      unitBranch: userDoc?.class || 'Đoàn Khoa Công nghệ Phần mềm',
+      avatarUrl: userDoc?.image_url || '',
+    };
+  }
+
   async getCurrentCycle() {
     try {
       const { db } = await connectToDatabase();
-      let cycle = await db.collection<any>(this.colCycles).findOne({ status: { $ne: 'LOCKED' } }, { sort: { createdAt: -1 } });
-      if (cycle) {
-        return { ...cycle, id: cycle._id.toString() };
-      }
+      const cycle: any = await db
+        .collection(this.colCycles)
+        .findOne({ status: { $ne: 'LOCKED' } }, { sort: { createdAt: -1 } });
 
-      const defaultCycle = {
-        name: 'Chu kỳ CLPI Quý II/2026',
-        quarter: 'Quý II',
-        year: 2026,
-        startDate: '01/04/2026',
-        endDate: '30/06/2026',
-        selfDeadline: '30/06/2026',
-        reviewDeadline: '10/07/2026',
-        status: 'OPEN',
-        createdAt: new Date().toISOString(),
-      };
-      const res = await db.collection(this.colCycles).insertOne(defaultCycle);
-      return { ...defaultCycle, _id: res.insertedId, id: res.insertedId.toString() };
+      if (!cycle) return null;
+      return { ...cycle, id: cycle._id.toString() };
     } catch (e) {
       throw new InternalServerErrorException('Lỗi tải thông tin chu kỳ CLPI');
     }
@@ -77,12 +157,24 @@ export class ClpiService {
   async getAllCycles() {
     try {
       const { db } = await connectToDatabase();
-      const cycles = await db.collection(this.colCycles).find().sort({ createdAt: -1 }).toArray();
-      if (cycles.length === 0) {
-        await this.getCurrentCycle();
-        return await db.collection(this.colCycles).find().toArray();
-      }
-      return cycles.map(c => ({ ...c, id: c._id.toString() }));
+      const [cycles, users] = await Promise.all([
+        db.collection(this.colCycles).find({}).sort({ createdAt: -1 }).toArray(),
+        db.collection(this.colUsers).find({}, { projection: { class: 1 } }).toArray(),
+      ]);
+
+      return cycles.map((c: any) => {
+        const cycleUnits: string[] = Array.isArray(c.units) ? c.units : [];
+        const matchedOfficers =
+          cycleUnits.length > 0
+            ? users.filter((u: any) => cycleUnits.includes(String(u.class || '').trim())).length
+            : users.length;
+
+        return {
+          ...c,
+          id: c._id.toString(),
+          totalOfficers: matchedOfficers,
+        };
+      });
     } catch (e) {
       throw new InternalServerErrorException('Lỗi lấy danh sách chu kỳ');
     }
@@ -109,12 +201,41 @@ export class ClpiService {
   async lockCycle(id: string) {
     try {
       const { db } = await connectToDatabase();
-      await db.collection(this.colCycles).updateOne(this.buildIdFilter(id), {
-        $set: { status: 'LOCKED', lockedAt: new Date().toISOString() }
+      const res = await db.collection(this.colCycles).updateOne(this.buildIdFilter(id), {
+        $set: { status: 'LOCKED', lockedAt: new Date().toISOString() },
       });
+      if (res.matchedCount === 0) {
+        throw new NotFoundException('Không tìm thấy chu kỳ đánh giá');
+      }
       return { success: true, message: 'Đã khóa chu kỳ đánh giá' };
     } catch (e) {
+      if (e instanceof NotFoundException) throw e;
       throw new InternalServerErrorException('Lỗi khóa chu kỳ');
+    }
+  }
+
+  async deleteCycle(id: string) {
+    try {
+      const { db } = await connectToDatabase();
+      const filter = this.buildIdFilter(id);
+      const cycle: any = await db.collection(this.colCycles).findOne(filter);
+      if (!cycle) {
+        throw new NotFoundException('Không tìm thấy chu kỳ đánh giá');
+      }
+
+      const cycleIdStr = cycle._id.toString();
+      const evalCount = await db.collection(this.colEvaluations).countDocuments({ cycleId: cycleIdStr });
+      if (evalCount > 0) {
+        throw new BadRequestException(
+          `Không thể xóa chu kỳ đã có ${evalCount} hồ sơ đánh giá. Vui lòng dùng tính năng Khóa chu kỳ.`
+        );
+      }
+
+      await db.collection(this.colCycles).deleteOne(filter);
+      return { success: true, message: 'Đã xóa chu kỳ đánh giá' };
+    } catch (e) {
+      if (e instanceof NotFoundException || e instanceof BadRequestException) throw e;
+      throw new InternalServerErrorException('Lỗi xóa chu kỳ đánh giá');
     }
   }
 
@@ -122,92 +243,314 @@ export class ClpiService {
     try {
       const { db } = await connectToDatabase();
       const { userId, fullName } = this.resolveUserInfo(req);
+      const profile = await this.getUserProfile(db, userId, fullName);
       const cycle = await this.getCurrentCycle();
+      const weightsCfg = await this.getIndicatorsConfig();
 
-      const activeTasks = await db.collection(this.colTasks).countDocuments({
-        assigneeId: userId,
-        status: { $in: ['not_started', 'in_progress'] },
-      });
+      const todayIso = new Date().toISOString().split('T')[0];
+      const next7Days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
 
-      const today = new Date().toISOString().split('T')[0];
-      const overdueTasks = await db.collection(this.colTasks).countDocuments({
-        assigneeId: userId,
-        status: { $nin: ['completed', 'cancelled'] },
-        deadlineIso: { $lt: today },
-      });
+      const taskQuery: any = userId
+        ? {
+            status: { $nin: ['CANCELLED', 'cancelled'] },
+            $or: [
+              { assigneeId: userId },
+              { primaryAssigneeId: userId },
+              { 'collaborators.id': userId },
+            ],
+          }
+        : { _id: null };
 
-      let evalDoc = await db.collection<any>(this.colEvaluations).findOne({
-        $or: [{ officerId: userId }, { officerId: 'user_default' }],
-        cycleId: cycle.id || cycle._id.toString()
-      });
-
-      const upcomingTasks = await db.collection<any>(this.colTasks)
-        .find({ assigneeId: userId, status: { $in: ['not_started', 'in_progress'] } })
+      const userTasks: any[] = await db
+        .collection(this.colTasks)
+        .find(taskQuery)
         .sort({ deadlineIso: 1 })
-        .limit(3)
         .toArray();
 
-      const lastFinalized = await db.collection<any>(this.colEvaluations).findOne(
-        { officerId: userId, status: { $in: ['APPROVED', 'FINALIZED'] } },
-        { sort: { approvedAt: -1 } }
+      const nonCompletedTasks = userTasks.filter(
+        (t: any) => !['COMPLETED', 'completed'].includes(t.status)
       );
+      const overdueTasks = nonCompletedTasks.filter((t: any) => {
+        const dIso = t.deadlineIso || this.normalizeIsoDate(t.deadline);
+        return Boolean(dIso && dIso < todayIso);
+      });
+      const upcomingTasks = nonCompletedTasks
+        .filter((t: any) => {
+          const dIso = t.deadlineIso || this.normalizeIsoDate(t.deadline);
+          return !dIso || dIso <= next7Days;
+        })
+        .slice(0, 3);
+
+      const ontimeRate =
+        nonCompletedTasks.length > 0
+          ? Math.round(
+              ((nonCompletedTasks.length - overdueTasks.length) / nonCompletedTasks.length) * 100
+            )
+          : 100;
+
+      const cycleId = cycle ? cycle.id || cycle._id.toString() : '';
+      const evalDoc: any =
+        userId && cycleId
+          ? await db
+              .collection(this.colEvaluations)
+              .findOne({ officerId: userId, cycleId })
+          : null;
+
+      const pendingReports: any[] =
+        userId && cycleId
+          ? await db
+              .collection(this.colReports)
+              .find({
+                officerId: userId,
+                cycleId,
+                status: { $in: ['DRAFT', 'NEEDS_REVISION', 'NOT_STARTED'] },
+              })
+              .toArray()
+          : [];
+
+      const submittedReportCount =
+        userId && cycleId
+          ? await db.collection(this.colReports).countDocuments({
+              officerId: userId,
+              cycleId,
+              status: { $in: ['SUBMITTED', 'RESUBMITTED', 'APPROVED', 'LOCKED'] },
+            })
+          : 0;
+
+      const lastFinalized: any = userId
+        ? await db.collection(this.colEvaluations).findOne(
+            { officerId: userId, status: { $in: ['APPROVED', 'FINALIZED', 'PUBLISHED'] } },
+            { sort: { updatedAt: -1 } }
+          )
+        : null;
+
+      const evalStatus = evalDoc?.status || 'NOT_STARTED';
+      const statusLabels: Record<string, { label: string; next: string }> = {
+        NOT_STARTED: { label: 'Chưa bắt đầu', next: 'Chờ cán bộ tự đánh giá' },
+        DRAFT: { label: 'Đang tự đánh giá', next: 'Hoàn thiện và nộp hồ sơ' },
+        SUBMITTED: { label: 'Đã nộp tự đánh giá', next: 'Chờ BTV Đoàn Khoa duyệt' },
+        RESUBMITTED: { label: 'Đã nộp lại hồ sơ', next: 'Chờ BTV thẩm định lại' },
+        UNDER_REVIEW: { label: 'BTV đang kiểm tra', next: 'Đang trong quá trình thẩm định' },
+        NEEDS_REVISION: { label: 'Cần bổ sung hồ sơ', next: 'Vui lòng bổ sung theo yêu cầu BTV' },
+        APPROVED: { label: 'Đã phê duyệt', next: 'Hoàn tất đánh giá chu kỳ' },
+        FINALIZED: { label: 'Hoàn tất đánh giá', next: 'Đã công bố kết quả chính thức' },
+      };
+
+      const mappedStatus = statusLabels[evalStatus] || statusLabels.NOT_STARTED;
+
+      const isSubmittedOrLater = [
+        'SUBMITTED',
+        'RESUBMITTED',
+        'UNDER_REVIEW',
+        'APPROVED',
+        'FINALIZED',
+      ].includes(evalStatus);
+      const isReviewingOrLater = ['UNDER_REVIEW', 'APPROVED', 'FINALIZED'].includes(evalStatus);
+      const isApproved = ['APPROVED', 'FINALIZED'].includes(evalStatus);
 
       return {
-        officerName: fullName,
+        officerName: profile.fullName,
         cycle,
-        evaluationStatus: evalDoc?.status || 'SUBMITTED',
-        evaluationId: evalDoc?._id?.toString() || 'eval_current',
+        evaluationStatus: evalStatus,
+        evaluationId: evalDoc?._id?.toString() || '',
         kpi: {
-          activeTasks: activeTasks || 5,
-          upcomingTasksCount: upcomingTasks.length || 1,
-          overdueTasks: overdueTasks || 0,
-          ontimeRate: 100,
-          pendingMonthlyReports: 1,
-          pendingMonthLabel: 'Tháng 08/2026 (Chờ gửi)',
-          clpiStatusLabel: evalDoc?.status === 'SUBMITTED' ? 'Đã nộp tự đánh giá' : 'Đang thực hiện',
-          clpiNextStep: 'Chờ BTV Đoàn Khoa duyệt',
+          activeTasks: nonCompletedTasks.length,
+          upcomingTasksCount: upcomingTasks.length,
+          overdueTasks: overdueTasks.length,
+          ontimeRate,
+          pendingMonthlyReports: pendingReports.length,
+          pendingMonthLabel:
+            pendingReports.length > 0
+              ? `Tháng ${pendingReports[0].reportingMonth} (Chờ gửi)`
+              : 'Đã hoàn thành báo cáo',
+          clpiStatusLabel: mappedStatus.label,
+          clpiNextStep: mappedStatus.next,
         },
         processSteps: [
-          { id: 1, label: 'Khởi tạo', status: 'completed' },
-          { id: 2, label: 'Cập nhật CV', status: 'completed' },
-          { id: 3, label: 'Báo cáo tháng', status: 'completed' },
-          { id: 4, label: 'Tự đánh giá', status: 'completed' },
-          { id: 5, label: 'Đã nộp', status: 'current' },
-          { id: 6, label: 'BTV kiểm tra', status: 'pending' },
-          { id: 7, label: 'Phê duyệt', status: 'pending' },
-        ],
-        upcomingTasks: upcomingTasks.length > 0 ? upcomingTasks.map(t => ({ ...t, id: t._id.toString() })) : [
+          { id: 1, label: 'Khởi tạo', status: cycle ? 'completed' : 'pending' },
+          { id: 2, label: 'Cập nhật CV', status: userTasks.length > 0 ? 'completed' : 'current' },
           {
-            id: 'task_01',
-            title: 'Tổ chức Tập huấn Lập trình GamApp 2026',
-            activityName: 'Mùa Hè Xanh 2026',
-            priority: 'high',
-            progress: 80,
-            deadline: '20/08/2026',
+            id: 3,
+            label: 'Báo cáo tháng',
+            status: submittedReportCount > 0 ? 'completed' : 'pending',
           },
           {
-            id: 'task_02',
-            title: 'Tổng hợp Minh chứng Hoạt động Học thuật Q2',
-            activityName: 'Công tác Đoàn',
-            priority: 'medium',
-            progress: 45,
-            deadline: '25/08/2026',
+            id: 4,
+            label: 'Tự đánh giá',
+            status:
+              evalStatus === 'NEEDS_REVISION'
+                ? 'warning'
+                : isSubmittedOrLater
+                ? 'completed'
+                : evalStatus === 'DRAFT'
+                ? 'current'
+                : 'pending',
           },
+          {
+            id: 5,
+            label: 'Đã nộp',
+            status: isSubmittedOrLater
+              ? isReviewingOrLater
+                ? 'completed'
+                : 'current'
+              : 'pending',
+          },
+          {
+            id: 6,
+            label: 'BTV kiểm tra',
+            status: isApproved ? 'completed' : isReviewingOrLater ? 'current' : 'pending',
+          },
+          { id: 7, label: 'Phê duyệt', status: isApproved ? 'completed' : 'pending' },
         ],
-        lastResult: {
-          cycleName: lastFinalized?.cycleName || 'Kết quả Quý I/2026',
-          clpiScore: lastFinalized?.finalClpiScore || 93.0,
-          hasResult: true,
-          indicators: [
-            { code: 'WPI', name: 'Nhiệm vụ', weight: 40, score: lastFinalized?.wpiFinalScore || 94.0 },
-            { code: 'LEI', name: 'Điều hành', weight: 25, score: lastFinalized?.leiFinalScore || 92.0 },
-            { code: 'CEI', name: 'Tương tác', weight: 20, score: lastFinalized?.ceiFinalScore || 91.0 },
-            { code: 'SDI', name: 'Phát triển', weight: 15, score: lastFinalized?.sdiFinalScore || 93.0 },
-          ],
-        },
+        upcomingTasks: upcomingTasks.map((t: any) => ({
+          id: t._id.toString(),
+          title: t.title,
+          activityName: t.activityName || '',
+          priority: String(t.priority || 'NORMAL').toLowerCase(),
+          progress: Number(t.progress || 0),
+          deadline: t.deadline,
+        })),
+        lastResult: lastFinalized
+          ? {
+              cycleName: lastFinalized.cycleName,
+              clpiScore: Number(lastFinalized.finalClpiScore || 0),
+              hasResult: true,
+              indicators: [
+                {
+                  code: 'WPI',
+                  name: 'Nhiệm vụ',
+                  weight: weightsCfg.weights.WPI,
+                  score: Number(lastFinalized.wpiFinalScore || 0),
+                },
+                {
+                  code: 'LEI',
+                  name: 'Điều hành',
+                  weight: weightsCfg.weights.LEI,
+                  score: Number(lastFinalized.leiFinalScore || 0),
+                },
+                {
+                  code: 'CEI',
+                  name: 'Tương tác',
+                  weight: weightsCfg.weights.CEI,
+                  score: Number(lastFinalized.ceiFinalScore || 0),
+                },
+                {
+                  code: 'SDI',
+                  name: 'Phát triển',
+                  weight: weightsCfg.weights.SDI,
+                  score: Number(lastFinalized.sdiFinalScore || 0),
+                },
+              ],
+            }
+          : {
+              cycleName: '',
+              clpiScore: 0,
+              hasResult: false,
+              indicators: [],
+            },
       };
     } catch (e) {
       throw new InternalServerErrorException('Lỗi tải dữ liệu Dashboard CLPI');
+    }
+  }
+
+  async getManagedTasks() {
+    try {
+      const { db } = await connectToDatabase();
+      const tasks: any[] = await db
+        .collection(this.colTasks)
+        .find({})
+        .sort({ createdAt: -1, deadlineIso: 1 })
+        .toArray();
+
+      return tasks.map((t: any) => ({
+        ...t,
+        id: t._id.toString(),
+      }));
+    } catch (e) {
+      throw new InternalServerErrorException('Lỗi tải danh sách công việc quản trị');
+    }
+  }
+
+  async createTask(dto: CreateClpiTaskDto, req: any) {
+    try {
+      const { db } = await connectToDatabase();
+      const { userId, fullName } = this.resolveUserInfo(req);
+
+      const cleanOutputs = (dto.expectedOutputs || [])
+        .map((o) => String(o).trim())
+        .filter(Boolean);
+      if (cleanOutputs.length === 0) {
+        throw new BadRequestException('Phải có ít nhất 01 sản phẩm đầu ra dự kiến');
+      }
+
+      const deadlineIso = this.normalizeIsoDate(dto.deadline);
+
+      const newTask = {
+        title: dto.title.trim(),
+        cycleId: dto.cycleId || null,
+        cycleName: dto.cycleName || '',
+        activityId: dto.activityId || null,
+        activityName: dto.activityName || '',
+        shortDescription: dto.shortDescription?.trim() || '',
+        description: dto.description.trim(),
+        priority: dto.priority || 'NORMAL',
+        startDate: dto.startDate || new Date().toISOString().slice(0, 10),
+        deadline: dto.deadline,
+        deadlineIso,
+        assigneeId: String(dto.primaryAssigneeId),
+        primaryAssigneeId: String(dto.primaryAssigneeId),
+        primaryAssigneeName: dto.primaryAssigneeName || '',
+        collaborators: Array.isArray(dto.collaborators) ? dto.collaborators : [],
+        indicators: Array.isArray(dto.indicators) ? dto.indicators : ['WPI'],
+        expectedOutputs: cleanOutputs,
+        requireEvidence: dto.requireEvidence ?? true,
+        assignedById: dto.assignedById || userId,
+        assignedByName: dto.assignedByName || fullName || 'Ban Thường vụ Đoàn Khoa',
+        assignedBy: dto.assignedByName || fullName || 'Ban Thường vụ Đoàn Khoa',
+        status: 'NOT_STARTED',
+        progress: 0,
+        evidenceCount: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const res = await db.collection(this.colTasks).insertOne(newTask);
+      return { success: true, ...newTask, _id: res.insertedId, id: res.insertedId.toString() };
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      throw new InternalServerErrorException('Lỗi tạo và giao công việc CLPI');
+    }
+  }
+
+  async updateTask(taskId: string, dto: UpdateClpiTaskDto) {
+    try {
+      const { db } = await connectToDatabase();
+      const filter = this.buildIdFilter(taskId);
+
+      const updateFields: any = {
+        ...dto,
+        updatedAt: new Date().toISOString(),
+      };
+      delete updateFields._id;
+      delete updateFields.id;
+
+      if (dto.primaryAssigneeId) {
+        updateFields.assigneeId = String(dto.primaryAssigneeId);
+      }
+      if (dto.deadline) {
+        updateFields.deadlineIso = this.normalizeIsoDate(dto.deadline);
+      }
+
+      const res = await db.collection(this.colTasks).updateOne(filter, { $set: updateFields });
+      if (res.matchedCount === 0) {
+        throw new NotFoundException('Không tìm thấy công việc để cập nhật');
+      }
+
+      return { success: true, message: 'Cập nhật công việc thành công' };
+    } catch (e) {
+      if (e instanceof NotFoundException) throw e;
+      throw new InternalServerErrorException('Lỗi cập nhật công việc CLPI');
     }
   }
 
@@ -215,39 +558,22 @@ export class ClpiService {
     try {
       const { db } = await connectToDatabase();
       const { userId } = this.resolveUserInfo(req);
+      if (!userId) return [];
 
-      let tasks = await db.collection<any>(this.colTasks).find({
-        $or: [{ assigneeId: userId }, { assigneeId: 'user_default' }]
-      }).sort({ deadlineIso: 1 }).toArray();
+      const tasks: any[] = await db
+        .collection(this.colTasks)
+        .find({
+          status: { $nin: ['CANCELLED', 'cancelled'] },
+          $or: [
+            { assigneeId: userId },
+            { primaryAssigneeId: userId },
+            { 'collaborators.id': userId },
+          ],
+        })
+        .sort({ deadlineIso: 1 })
+        .toArray();
 
-      if (tasks.length === 0) {
-        tasks = [
-          {
-            _id: 'task_01',
-            title: 'Tổ chức Tập huấn Lập trình GamApp 2026',
-            activityName: 'Mùa Hè Xanh',
-            priority: 'high',
-            deadline: '20/08/2026',
-            deadlineIso: '2026-08-20',
-            progress: 80,
-            status: 'in_progress',
-            evidenceCount: 2,
-          },
-          {
-            _id: 'task_02',
-            title: 'Tổng hợp Minh chứng Hoạt động Học thuật Q2',
-            activityName: 'Công tác Đoàn',
-            priority: 'medium',
-            deadline: '25/08/2026',
-            deadlineIso: '2026-08-25',
-            progress: 45,
-            status: 'in_progress',
-            evidenceCount: 1,
-          },
-        ];
-      }
-
-      return tasks.map(t => ({ ...t, id: t._id.toString() }));
+      return tasks.map((t: any) => ({ ...t, id: t._id.toString() }));
     } catch (e) {
       throw new InternalServerErrorException('Lỗi tải danh sách nhiệm vụ');
     }
@@ -256,43 +582,25 @@ export class ClpiService {
   async getTaskDetail(taskId: string) {
     try {
       const { db } = await connectToDatabase();
-      let task: any = await db.collection<any>(this.colTasks).findOne(this.buildIdFilter(taskId));
+      const task: any = await db.collection(this.colTasks).findOne(this.buildIdFilter(taskId));
       if (!task) {
-        task = {
-          _id: taskId,
-          taskNumber: '3',
-          title: 'Tổ chức Tập huấn Lập trình GamApp 2026',
-          activityName: 'Mùa Hè Xanh 2026',
-          shortDescription: 'Phụ trách nội dung giảng dạy và tài liệu chuyên môn cho học viên.',
-          assignedBy: 'Bí thư Đoàn Khoa',
-          primaryAssignee: 'Nguyễn Văn A',
-          deadline: '20/08/2026',
-          indicators: ['WPI', 'LEI'],
-          progress: 80,
-          description: 'Xây dựng chương trình 03 buổi tập huấn lập trình Game Mini bằng React & Canvas cho hội viên.',
-          expectedOutputs: [
-            'Bộ tài liệu giảng dạy 3 buổi bài giảng',
-            'Đường dẫn Google Drive tổng hợp bài nộp',
-            'Báo cáo sĩ số và kết quả đánh giá học viên'
-          ],
-          status: 'in_progress',
-        };
+        throw new NotFoundException('Không tìm thấy thông tin công việc');
       }
-      const evidences = await db.collection(this.colEvidences).find({ taskId }).toArray();
-      return { 
-        ...task, 
+
+      const evidences: any[] = await db
+        .collection(this.colEvidences)
+        .find({ taskId: { $in: [taskId, task._id.toString()] } })
+        .toArray();
+
+      return {
+        ...task,
         id: task._id.toString(),
-        evidences: evidences.length > 0 ? evidences.map(e => ({ ...e, id: e._id.toString() })) : [
-          {
-            id: 'evi_01',
-            title: 'Kế_hoạch_Tập_huấn_GamApp_2026.pdf',
-            type: 'file',
-            fileSize: '2.4 MB',
-            createdAt: '12/08/2026'
-          }
-        ]
+        primaryAssignee: task.primaryAssigneeName || task.primaryAssignee || '',
+        assignedBy: task.assignedByName || task.assignedBy || 'Ban Thường vụ Đoàn Khoa',
+        evidences: evidences.map((e: any) => ({ ...e, id: e._id.toString() })),
       };
     } catch (e) {
+      if (e instanceof NotFoundException) throw e;
       throw new InternalServerErrorException('Lỗi lấy chi tiết công việc');
     }
   }
@@ -306,12 +614,21 @@ export class ClpiService {
         progress: dto.progress,
         updatedAt: new Date().toISOString(),
       };
-      if (dto.status) updateData.status = dto.status;
-      if (dto.progress === 100) updateData.status = 'completed';
+      if (dto.status) {
+        updateData.status = dto.status;
+      } else if (dto.progress === 100) {
+        updateData.status = 'COMPLETED';
+      } else if (dto.progress > 0) {
+        updateData.status = 'IN_PROGRESS';
+      }
 
-      await db.collection(this.colTasks).updateOne(filter, { $set: updateData }, { upsert: true });
+      const res = await db.collection(this.colTasks).updateOne(filter, { $set: updateData });
+      if (res.matchedCount === 0) {
+        throw new NotFoundException('Không tìm thấy công việc để cập nhật tiến độ');
+      }
       return { success: true, message: 'Đã cập nhật tiến độ công việc' };
     } catch (e) {
+      if (e instanceof NotFoundException) throw e;
       throw new InternalServerErrorException('Lỗi cập nhật tiến độ công việc');
     }
   }
@@ -325,14 +642,16 @@ export class ClpiService {
         taskId: dto.taskId,
         title: dto.title,
         type: dto.type,
-        url: dto.type === 'url' ? dto.url : (file ? `/uploads/evidences/${file.filename}` : ''),
+        url: dto.type === 'url' ? dto.url : file ? `/uploads/evidences/${file.filename}` : '',
         fileSize: file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : 'Liên kết',
         createdBy: userId,
         createdAt: new Date().toLocaleDateString('vi-VN'),
       };
 
       const result = await db.collection(this.colEvidences).insertOne(newEvidence);
-      await db.collection(this.colTasks).updateOne(this.buildIdFilter(dto.taskId), { $inc: { evidenceCount: 1 } });
+      await db
+        .collection(this.colTasks)
+        .updateOne(this.buildIdFilter(dto.taskId), { $inc: { evidenceCount: 1 } });
 
       return { ...newEvidence, id: result.insertedId.toString() };
     } catch (e) {
@@ -343,13 +662,22 @@ export class ClpiService {
   async deleteEvidence(evidenceId: string) {
     try {
       const { db } = await connectToDatabase();
-      const evi = await db.collection<any>(this.colEvidences).findOne(this.buildIdFilter(evidenceId));
-      if (evi) {
-        await db.collection(this.colEvidences).deleteOne(this.buildIdFilter(evidenceId));
-        await db.collection(this.colTasks).updateOne(this.buildIdFilter(evi.taskId), { $inc: { evidenceCount: -1 } });
+      const evi: any = await db
+        .collection(this.colEvidences)
+        .findOne(this.buildIdFilter(evidenceId));
+      if (!evi) {
+        throw new NotFoundException('Không tìm thấy minh chứng');
+      }
+
+      await db.collection(this.colEvidences).deleteOne(this.buildIdFilter(evidenceId));
+      if (evi.taskId) {
+        await db
+          .collection(this.colTasks)
+          .updateOne(this.buildIdFilter(evi.taskId), { $inc: { evidenceCount: -1 } });
       }
       return { success: true, message: 'Đã gỡ minh chứng' };
     } catch (e) {
+      if (e instanceof NotFoundException) throw e;
       throw new InternalServerErrorException('Lỗi xóa minh chứng');
     }
   }
@@ -358,43 +686,56 @@ export class ClpiService {
     try {
       const { db } = await connectToDatabase();
       const { userId, fullName } = this.resolveUserInfo(req);
+      const profile = await this.getUserProfile(db, userId, fullName);
       const cycle = await this.getCurrentCycle();
+      const cycleId = cycle ? cycle.id || cycle._id?.toString() : '';
 
-      const report = await db.collection<any>(this.colReports).findOne(
-        { officerId: userId, cycleId: cycle.id || cycle._id?.toString() },
-        { sort: { createdAt: -1 } }
-      );
+      const now = new Date();
+      const currentMonthStr = `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+      const monthlyDeadline = this.getLastDayOfMonthStr(currentMonthStr);
 
-      if (report) return { ...report, id: report._id.toString() };
+      const report: any = userId
+        ? await db
+            .collection(this.colReports)
+            .findOne({ officerId: userId, reportingMonth: currentMonthStr }, { sort: { createdAt: -1 } })
+        : null;
 
-      return {
-        id: `report_${Date.now()}`,
-        reportingMonth: '08/2026',
-        cycleName: cycle.name,
-        officerName: fullName,
-        positionName: 'Bí thư Chi đoàn',
-        unitBranch: 'Chi đoàn KTPM2025.1',
-        deadline: '28/08/2026',
+      if (report) {
+        return {
+          ...report,
+          id: report._id.toString(),
+          deadline: this.getLastDayOfMonthStr(report.reportingMonth || currentMonthStr),
+        };
+      }
+
+      const userTasks = await this.getTasks(req);
+      const tasksSnapshot = userTasks.map((t: any) => ({
+        taskId: t.id,
+        title: t.title,
+        progress: Number(t.progress || 0),
+        result: t.result || (Number(t.progress) === 100 ? 'Đã hoàn thành' : 'Đang triển khai'),
+      }));
+
+      const newDraft = {
+        reportingMonth: currentMonthStr,
+        cycleId,
+        cycleName: cycle?.name || '',
+        officerId: userId,
+        officerName: profile.fullName,
+        positionName: profile.positionName,
+        unitBranch: profile.unitBranch,
+        deadline: monthlyDeadline,
         status: 'DRAFT',
-        tasksSnapshot: [
-          {
-            taskId: 'task_01',
-            title: 'Tập huấn Lập trình GamApp 2026',
-            progress: 80,
-            result: 'Hoàn thành 2/3 buổi học'
-          },
-          {
-            taskId: 'task_04',
-            title: 'Thiết kế Backdrop Ngày hội Tân SV',
-            progress: 100,
-            result: 'Đã in ấn & nghiệm thu'
-          }
-        ],
-        selfAssessment: 'Trong tháng 08/2026, tôi đã chủ động hoàn thành các công việc được BTV giao đúng tiến độ, phối hợp tốt với Ban Học thuật tổ chức lớp tập huấn GamApp đạt chất lượng cao.',
-        difficulties: 'Thời gian tổ chức tập huấn trùng với lịch thi cuối kỳ của một số cán bộ hỗ trợ nên công tác điểm danh còn chậm.',
-        supportProposal: 'Đề xuất Đoàn Khoa hỗ trợ thêm kinh phí in ấn tài liệu cho học viên trong các đợt tiếp theo.',
-        lastSavedAt: '16:45 hôm nay',
+        tasksSnapshot,
+        selfAssessment: '',
+        difficulties: '',
+        supportProposal: '',
+        lastSavedAt: '',
+        createdAt: new Date().toISOString(),
       };
+
+      const inserted = await db.collection(this.colReports).insertOne(newDraft);
+      return { ...newDraft, _id: inserted.insertedId, id: inserted.insertedId.toString() };
     } catch (e) {
       throw new InternalServerErrorException('Lỗi tải báo cáo công tác tháng');
     }
@@ -411,6 +752,10 @@ export class ClpiService {
           $set: {
             ...dto,
             status: 'DRAFT',
+            lastSavedAt: new Date().toLocaleTimeString('vi-VN', {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
             updatedAt: new Date().toISOString(),
           },
         },
@@ -453,23 +798,21 @@ export class ClpiService {
       const { db } = await connectToDatabase();
       const { userId } = this.resolveUserInfo(req);
       const cycle = await this.getCurrentCycle();
+      const cycleId = cycle ? cycle.id || cycle._id?.toString() : '';
 
-      const evaluation = await db.collection<any>(this.colEvaluations).findOne({ 
-        officerId: userId, 
-        cycleId: cycle.id || cycle._id?.toString() 
-      });
+      const evaluation: any =
+        userId && cycleId
+          ? await db.collection(this.colEvaluations).findOne({ officerId: userId, cycleId })
+          : null;
 
       return {
-        cycleName: cycle.name,
-        evaluationId: evaluation?._id?.toString() || 'eval_current',
-        scores: evaluation?.selfScores || { WPI: 94, LEI: 92, CEI: 91, SDI: 93 },
-        explanations: evaluation?.selfExplanations || {
-          WPI: 'Đã hoàn thành 100% công việc trong quý đúng thời hạn. Có 1 nhiệm vụ vượt chỉ tiêu học viên.',
-          LEI: 'Phối hợp nhịp nhàng với các Bí thư Chi đoàn bạn. Lãnh đạo Ban Tổ chức hoạt động chu đáo.',
-          CEI: 'Tham gia đầy đủ 100% các cuộc họp giao ban BTV và các buổi sinh hoạt Chi đoàn chủ điểm.',
-          SDI: 'Đã hoàn thành chứng chỉ Kỹ năng Lãnh đạo Cán bộ Trẻ do Trường Đại học CNTT cấp.'
-        },
-        status: evaluation?.status || 'SUBMITTED',
+        cycleName: cycle?.name || '',
+        evaluationId: evaluation?._id?.toString() || '',
+        scores: evaluation?.selfScores || { WPI: 0, LEI: 0, CEI: 0, SDI: 0 },
+        explanations: evaluation?.selfExplanations || { WPI: '', LEI: '', CEI: '', SDI: '' },
+        revisionReason: evaluation?.revisionReason || '',
+        revisionDeadline: evaluation?.revisionDeadline || '',
+        status: evaluation?.status || 'NOT_STARTED',
       };
     } catch (e) {
       throw new InternalServerErrorException('Lỗi tải dữ liệu tự đánh giá');
@@ -480,30 +823,67 @@ export class ClpiService {
     try {
       const { db } = await connectToDatabase();
       const { userId, fullName } = this.resolveUserInfo(req);
-      const cycle = await this.getCurrentCycle();
+      if (!userId) {
+        throw new BadRequestException('Không xác định được thông tin cán bộ đăng nhập');
+      }
 
+      const profile = await this.getUserProfile(db, userId, fullName);
+      const cycle = await this.getCurrentCycle();
+      if (!cycle) {
+        throw new BadRequestException('Hiện chưa có chu kỳ đánh giá CLPI nào đang mở');
+      }
+
+      const cycleId = cycle.id || cycle._id.toString();
       const now = new Date();
+      const timeStr = `${now.toLocaleTimeString('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })} ${now.toLocaleDateString('vi-VN')}`;
+
       const evalPayload = {
-        cycleId: cycle.id || cycle._id?.toString(),
+        cycleId,
         cycleName: cycle.name,
         officerId: userId,
-        fullName,
+        officerCode: profile.officerCode,
+        fullName: profile.fullName,
+        positionName: profile.positionName,
+        unitBranch: profile.unitBranch,
+        unitName: profile.unitBranch,
         selfScores: dto.scores,
         selfExplanations: dto.explanations,
         totalSelfClpi: dto.calculatedClpi,
+        selfClassification: this.computeClassification(dto.calculatedClpi),
         status: dto.isRevision ? 'RESUBMITTED' : 'SUBMITTED',
-        submittedAt: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' ' + now.toLocaleDateString('vi-VN'),
+        submittedAt: timeStr,
         updatedAt: now.toISOString(),
       };
 
-      const res = await db.collection(this.colEvaluations).updateOne(
-        { officerId: userId, cycleId: cycle.id || cycle._id?.toString() },
-        { $set: evalPayload },
-        { upsert: true }
-      );
+      const existing: any = await db
+        .collection(this.colEvaluations)
+        .findOne({ officerId: userId, cycleId });
 
-      return { success: true, message: 'Nộp hồ sơ tự đánh giá CLPI thành công', evaluationId: res.upsertedId?.toString() };
+      if (existing) {
+        await db
+          .collection(this.colEvaluations)
+          .updateOne({ _id: existing._id }, { $set: evalPayload });
+        return {
+          success: true,
+          message: 'Nộp hồ sơ tự đánh giá CLPI thành công',
+          evaluationId: existing._id.toString(),
+        };
+      } else {
+        const res = await db.collection(this.colEvaluations).insertOne({
+          ...evalPayload,
+          createdAt: now.toISOString(),
+        });
+        return {
+          success: true,
+          message: 'Nộp hồ sơ tự đánh giá CLPI thành công',
+          evaluationId: res.insertedId.toString(),
+        };
+      }
     } catch (e) {
+      if (e instanceof BadRequestException) throw e;
       throw new InternalServerErrorException('Lỗi gửi hồ sơ tự đánh giá');
     }
   }
@@ -513,70 +893,111 @@ export class ClpiService {
       const { db } = await connectToDatabase();
       let evaluation: any = null;
 
-      if (id !== 'current' && id !== 'eval_current') {
-        evaluation = await db.collection<any>(this.colEvaluations).findOne(this.buildIdFilter(id));
+      if (id && id !== 'current' && id !== 'eval_current') {
+        evaluation = await db
+          .collection(this.colEvaluations)
+          .findOne(this.buildIdFilter(id));
       }
 
       if (!evaluation && req) {
         const { userId } = this.resolveUserInfo(req);
-        evaluation = await db.collection<any>(this.colEvaluations).findOne({ officerId: userId });
+        if (userId) {
+          evaluation = await db
+            .collection(this.colEvaluations)
+            .findOne({ officerId: userId }, { sort: { updatedAt: -1 } });
+        }
       }
 
       if (!evaluation) {
-        return {
-          id: id || 'eval_current',
-          cycleName: 'Quý II/2026',
-          officerCode: 'CB-2025-014',
-          fullName: 'Nguyễn Văn A',
-          positionName: 'Bí thư Chi đoàn KTPM2025.1',
-          unitName: 'Đoàn Khoa Công nghệ Phần mềm',
-          approvedBy: 'Ban Thường vụ Đoàn Khoa CNPM',
-          approvedAt: '28/06/2026',
-          status: 'SUBMITTED',
-          submittedAt: '14:20 15/08/2026',
-          wpiScore: 94.0,
-          leiScore: 92.0,
-          ceiScore: 91.0,
-          sdiScore: 93.0,
-          totalSelfClpi: 93.0,
-          selfClassification: 'Xuất sắc',
-          finalClpiScore: 93.0,
-          finalClassification: 'Xuất sắc',
-          wpiFinalScore: 94.0,
-          leiFinalScore: 92.0,
-          ceiFinalScore: 91.0,
-          sdiFinalScore: 93.0,
-          selfScores: { WPI: 94, LEI: 92, CEI: 91, SDI: 93 },
-          strengths: 'Đồng chí hoàn thành xuất sắc công tác chuyên môn học thuật, có sáng kiến hay trong hoạt động Mùa Hè Xanh. Tương tác tích cực với đoàn viên.',
-          developmentRecommendation: 'Khuyến khích tiếp tục đăng ký tham gia các khóa đào tạo Lãnh đạo Cấp cao Đoàn Trường để nâng cao thêm chỉ số SDI.',
-          isPublished: true,
-          selfAssessmentText: 'Trong tháng 08/2026, tôi đã chủ động hoàn thành các công việc được BTV giao đúng tiến độ, phối hợp tốt với Ban Học thuật tổ chức lớp tập huấn GamApp đạt chất lượng cao.',
-          difficultiesAndProposalText: 'Thời gian trùng lịch thi cuối kỳ. Đề xuất hỗ trợ thêm kinh phí in tài liệu đợt tới.',
-          timeline: [
-            { id: 1, label: 'Khởi tạo biểu mẫu', timeStr: '01/06/2026 08:00', status: 'completed' },
-            { id: 2, label: 'Cán bộ nộp tự đánh giá', timeStr: '15/08/2026 14:20', status: 'completed' },
-            { id: 3, label: 'BTV đang thẩm định', timeStr: 'Đang thực hiện (Hạn: 25/08)', status: 'current' },
-            { id: 4, label: 'Phê duyệt & Công bố', timeStr: 'Chờ hoàn tất', status: 'pending' },
-          ],
-          evidences: [
-            {
-              id: 'evi_01',
-              fileName: 'Kế_hoạch_Tập_huấn_GamApp_2026.pdf',
-              fileSize: '2.4 MB',
-              type: 'file',
-              reviewerNote: 'Thẩm định: Minh chứng đầy đủ, có xác nhận của Cố vấn học tập.',
-            }
-          ]
-        };
+        throw new NotFoundException('Không tìm thấy hồ sơ đánh giá CLPI');
       }
 
-      const evidences = await db.collection(this.colEvidences).find({ createdBy: evaluation.officerId }).toArray();
-      return { 
-        ...evaluation, 
+      const evidences: any[] = await db
+        .collection(this.colEvidences)
+        .find({ createdBy: evaluation.officerId })
+        .toArray();
+
+      const latestReport: any = await db
+        .collection(this.colReports)
+        .findOne(
+          { officerId: evaluation.officerId, cycleId: evaluation.cycleId },
+          { sort: { updatedAt: -1 } }
+        );
+
+      const isSubmitted = [
+        'SUBMITTED',
+        'RESUBMITTED',
+        'UNDER_REVIEW',
+        'NEEDS_REVISION',
+        'APPROVED',
+        'FINALIZED',
+      ].includes(evaluation.status);
+      const isApproved = ['APPROVED', 'FINALIZED'].includes(evaluation.status);
+
+      const timeline = [
+        {
+          id: 1,
+          label: 'Khởi tạo biểu mẫu',
+          timeStr: evaluation.createdAt
+            ? new Date(evaluation.createdAt).toLocaleString('vi-VN')
+            : '',
+          status: 'completed',
+        },
+        {
+          id: 2,
+          label: 'Cán bộ nộp tự đánh giá',
+          timeStr: evaluation.submittedAt || 'Chưa nộp',
+          status: isSubmitted ? 'completed' : 'current',
+        },
+        {
+          id: 3,
+          label: 'BTV đang thẩm định',
+          timeStr: isApproved
+            ? 'Đã hoàn tất thẩm định'
+            : evaluation.status === 'NEEDS_REVISION'
+            ? 'Đã yêu cầu bổ sung hồ sơ'
+            : isSubmitted
+            ? 'Đang thực hiện'
+            : 'Chờ nộp hồ sơ',
+          status: isApproved
+            ? 'completed'
+            : evaluation.status === 'NEEDS_REVISION'
+            ? 'warning'
+            : isSubmitted
+            ? 'current'
+            : 'pending',
+        },
+        {
+          id: 4,
+          label: 'Phê duyệt & Công bố',
+          timeStr: evaluation.approvedAt || 'Chờ hoàn tất',
+          status: isApproved ? 'completed' : 'pending',
+        },
+      ];
+
+      return {
+        ...evaluation,
         id: evaluation._id.toString(),
-        evidences: evidences.map(e => ({ ...e, id: e._id.toString(), fileName: e.title })) 
+        wpiScore: Number(evaluation.selfScores?.WPI || 0),
+        leiScore: Number(evaluation.selfScores?.LEI || 0),
+        ceiScore: Number(evaluation.selfScores?.CEI || 0),
+        sdiScore: Number(evaluation.selfScores?.SDI || 0),
+        selfAssessmentText: latestReport?.selfAssessment || '',
+        difficultiesAndProposalText: [
+          latestReport?.difficulties,
+          latestReport?.supportProposal,
+        ]
+          .filter(Boolean)
+          .join(' | '),
+        timeline,
+        evidences: evidences.map((e: any) => ({
+          ...e,
+          id: e._id.toString(),
+          fileName: e.title,
+        })),
       };
     } catch (e) {
+      if (e instanceof NotFoundException) throw e;
       throw new InternalServerErrorException('Lỗi lấy chi tiết hồ sơ đánh giá');
     }
   }
@@ -584,41 +1005,28 @@ export class ClpiService {
   async getReviewQueue(req: any) {
     try {
       const { db } = await connectToDatabase();
-      const queue = await db.collection<any>(this.colEvaluations).find({
-        status: { $in: ['SUBMITTED', 'RESUBMITTED', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED', 'FINALIZED'] },
-      }).sort({ submittedAt: -1 }).toArray();
-
-      if (queue.length === 0) {
-        return [
-          {
-            id: 'eval_01',
-            fullName: 'Nguyễn Văn A',
-            unitBranch: 'KTPM2025.1',
-            positionName: 'Bí thư Chi đoàn',
-            submittedAt: '15/08/2026',
-            selfScore: 93.0,
-            reviewerScore: null,
-            status: 'SUBMITTED',
-            isOverdue: false,
+      const queue: any[] = await db
+        .collection(this.colEvaluations)
+        .find({
+          status: {
+            $in: [
+              'SUBMITTED',
+              'RESUBMITTED',
+              'UNDER_REVIEW',
+              'NEEDS_REVISION',
+              'APPROVED',
+              'FINALIZED',
+            ],
           },
-          {
-            id: 'eval_02',
-            fullName: 'Trần Thị B',
-            unitBranch: 'Ban Học thuật',
-            positionName: 'Trưởng Ban',
-            submittedAt: '14/08/2026',
-            selfScore: 88.5,
-            reviewerScore: null,
-            status: 'SUBMITTED',
-            isOverdue: true,
-          },
-        ];
-      }
+        })
+        .sort({ updatedAt: -1 })
+        .toArray();
 
-      return queue.map(q => ({
+      return queue.map((q: any) => ({
         ...q,
         id: q._id.toString(),
-        selfScore: q.totalSelfClpi || q.selfScore || 90,
+        selfScore: Number(q.totalSelfClpi || 0),
+        reviewerScore: q.finalClpiScore != null ? Number(q.finalClpiScore) : null,
       }));
     } catch (e) {
       throw new InternalServerErrorException('Lỗi tải danh sách hồ sơ chờ thẩm định');
@@ -640,7 +1048,7 @@ export class ClpiService {
         status: 'OPEN',
       });
 
-      await db.collection(this.colEvaluations).updateOne(filter, {
+      const res = await db.collection(this.colEvaluations).updateOne(filter, {
         $set: {
           status: 'NEEDS_REVISION',
           revisionReason: dto.reason,
@@ -650,8 +1058,13 @@ export class ClpiService {
         },
       });
 
+      if (res.matchedCount === 0) {
+        throw new NotFoundException('Không tìm thấy hồ sơ đánh giá');
+      }
+
       return { success: true, message: 'Đã gửi yêu cầu bổ sung hồ sơ thành công' };
     } catch (e) {
+      if (e instanceof NotFoundException) throw e;
       throw new InternalServerErrorException('Lỗi gửi yêu cầu bổ sung hồ sơ');
     }
   }
@@ -663,7 +1076,7 @@ export class ClpiService {
       const filter = this.buildIdFilter(id);
 
       const now = new Date();
-      await db.collection(this.colEvaluations).updateOne(filter, {
+      const res = await db.collection(this.colEvaluations).updateOne(filter, {
         $set: {
           reviewerScores: dto.scores,
           wpiFinalScore: dto.scores.WPI,
@@ -676,14 +1089,21 @@ export class ClpiService {
           approverId: userId,
           approvedAt: now.toLocaleDateString('vi-VN'),
           reviewerComment: dto.comment || '',
+          strengths: dto.strengths || dto.comment || '',
+          developmentRecommendation: dto.developmentRecommendation || '',
           status: 'FINALIZED',
           isPublished: true,
           updatedAt: now.toISOString(),
         },
       });
 
+      if (res.matchedCount === 0) {
+        throw new NotFoundException('Không tìm thấy hồ sơ đánh giá');
+      }
+
       return { success: true, message: 'Phê duyệt kết quả CLPI thành công' };
     } catch (e) {
+      if (e instanceof NotFoundException) throw e;
       throw new InternalServerErrorException('Lỗi phê duyệt kết quả CLPI');
     }
   }
@@ -692,53 +1112,92 @@ export class ClpiService {
     try {
       const { db } = await connectToDatabase();
       const cycle = await this.getCurrentCycle();
+      const cycleId = cycle ? cycle.id || cycle._id.toString() : '';
 
-      const evaluations = await db.collection<any>(this.colEvaluations).find().toArray();
+      const userQuery: any = unitId ? { class: unitId } : {};
+      const users: any[] = await db.collection(this.colUsers).find(userQuery).toArray();
 
-      const members = [
-        {
-          id: 'user_01',
-          fullName: 'Nguyễn Văn A',
-          positionName: 'Bí thư Chi đoàn',
-          wpiScore: 94.0,
-          leiScore: 92.0,
-          ceiScore: 91.0,
-          sdiScore: 93.0,
-          clpiScore: 93.0,
-          classification: 'Xuất sắc',
-        },
-        {
-          id: 'user_02',
-          fullName: 'Trần Minh C',
-          positionName: 'Phó Bí thư',
-          wpiScore: 88.0,
-          leiScore: 86.0,
-          ceiScore: 85.0,
-          sdiScore: 87.0,
-          clpiScore: 86.8,
-          classification: 'Tốt',
-        },
-        {
-          id: 'user_03',
-          fullName: 'Lê Hoàng D',
-          positionName: 'Ủy viên BCH',
-          wpiScore: 70.0,
-          leiScore: 65.0,
-          ceiScore: 60.0,
-          sdiScore: 68.0,
-          clpiScore: 66.2,
-          classification: 'Đạt',
-        },
-      ];
+      const evalQuery: any = cycleId ? { cycleId } : {};
+      const evaluations: any[] = await db.collection(this.colEvaluations).find(evalQuery).toArray();
+      const evalByUser = new Map<string, any>();
+      evaluations.forEach((ev: any) => {
+        if (ev.officerId) evalByUser.set(String(ev.officerId), ev);
+      });
+
+      const members = users.map((u: any) => {
+        const uid = u._id.toString();
+        const ev = evalByUser.get(uid);
+        const isFinal = ev && ['APPROVED', 'FINALIZED', 'PUBLISHED'].includes(ev.status);
+        const positions: string[] = Array.isArray(u.positions)
+          ? u.positions
+          : u.position
+          ? [u.position]
+          : [];
+
+        return {
+          id: uid,
+          fullName: u.full_name || u.name || '',
+          positionName: positions.join(', ') || 'Ủy viên BCH',
+          wpiScore: isFinal ? Number(ev.wpiFinalScore ?? 0) : null,
+          leiScore: isFinal ? Number(ev.leiFinalScore ?? 0) : null,
+          ceiScore: isFinal ? Number(ev.ceiFinalScore ?? 0) : null,
+          sdiScore: isFinal ? Number(ev.sdiFinalScore ?? 0) : null,
+          clpiScore: isFinal ? Number(ev.finalClpiScore ?? 0) : null,
+          classification: isFinal ? ev.finalClassification || '' : 'Chưa có kết quả',
+        };
+      });
+
+      const finalizedMembers = members.filter((m) => m.clpiScore !== null);
+      const averageClpi =
+        finalizedMembers.length > 0
+          ? Number(
+              (
+                finalizedMembers.reduce((acc, m) => acc + Number(m.clpiScore || 0), 0) /
+                finalizedMembers.length
+              ).toFixed(1)
+            )
+          : 0;
+
+      const userIds = users.map((u: any) => u._id.toString());
+      const unitTasks: any[] =
+        userIds.length > 0
+          ? await db
+              .collection(this.colTasks)
+              .find({
+                primaryAssigneeId: { $in: userIds },
+                status: { $nin: ['CANCELLED', 'cancelled'] },
+              })
+              .toArray()
+          : [];
+      const completedTasks = unitTasks.filter((t: any) =>
+        ['COMPLETED', 'completed'].includes(t.status)
+      );
+      const completedTasksRate =
+        unitTasks.length > 0 ? Math.round((completedTasks.length / unitTasks.length) * 100) : 0;
+
+      const unitReports: any[] =
+        userIds.length > 0 && cycleId
+          ? await db
+              .collection(this.colReports)
+              .find({ officerId: { $in: userIds }, cycleId })
+              .toArray()
+          : [];
+      const submittedReports = unitReports.filter((r: any) =>
+        ['SUBMITTED', 'RESUBMITTED', 'APPROVED', 'LOCKED'].includes(r.status)
+      );
+      const onTimeReportRate =
+        unitReports.length > 0
+          ? Math.round((submittedReports.length / unitReports.length) * 100)
+          : 0;
 
       return {
-        unitId: unitId || 'unit_ktpm2025_1',
-        unitName: 'Chi đoàn KTPM2025.1',
-        cycleName: cycle.name,
+        unitId: unitId || 'all',
+        unitName: unitId || 'Toàn Đoàn Khoa CNPM',
+        cycleName: cycle?.name || '',
         totalMembers: members.length,
-        onTimeReportRate: 88,
-        averageClpi: 86.4,
-        completedTasksRate: 92,
+        onTimeReportRate,
+        averageClpi,
+        completedTasksRate,
         members,
       };
     } catch (e) {
@@ -750,24 +1209,115 @@ export class ClpiService {
     try {
       const { db } = await connectToDatabase();
       const cycle = await this.getCurrentCycle();
+      const cycleId = cycle ? cycle.id || cycle._id.toString() : '';
+
+      const users: any[] = await db.collection(this.colUsers).find({}).toArray();
+      const evalQuery: any = cycleId ? { cycleId } : {};
+      const evaluations: any[] = await db.collection(this.colEvaluations).find(evalQuery).toArray();
+
+      const submittedEvaluations = evaluations.filter((e: any) =>
+        [
+          'SUBMITTED',
+          'RESUBMITTED',
+          'UNDER_REVIEW',
+          'NEEDS_REVISION',
+          'APPROVED',
+          'FINALIZED',
+        ].includes(e.status)
+      );
+      const approvedEvaluations = evaluations.filter((e: any) =>
+        ['APPROVED', 'FINALIZED'].includes(e.status)
+      );
+      const pendingReviews = evaluations.filter((e: any) =>
+        ['SUBMITTED', 'RESUBMITTED', 'UNDER_REVIEW'].includes(e.status)
+      );
+
+      const averageCLPI =
+        approvedEvaluations.length > 0
+          ? Number(
+              (
+                approvedEvaluations.reduce(
+                  (s: number, e: any) => s + Number(e.finalClpiScore || 0),
+                  0
+                ) / approvedEvaluations.length
+              ).toFixed(1)
+            )
+          : 0;
+
+      const excellentCount = approvedEvaluations.filter(
+        (e: any) => Number(e.finalClpiScore || 0) >= 90
+      ).length;
+      const excellentRate =
+        approvedEvaluations.length > 0
+          ? Math.round((excellentCount / approvedEvaluations.length) * 100)
+          : 0;
+
+      const unitMap = new Map<string, any[]>();
+      users.forEach((u: any) => {
+        const unitName = u.class || 'Chưa phân đơn vị';
+        if (!unitMap.has(unitName)) unitMap.set(unitName, []);
+        unitMap.get(unitName)!.push(u);
+      });
+
+      const evalByOfficer = new Map<string, any>();
+      evaluations.forEach((e: any) => {
+        if (e.officerId) evalByOfficer.set(String(e.officerId), e);
+      });
+
+      const unitSummaries = Array.from(unitMap.entries()).map(([unitName, members], idx) => {
+        const memberEvals = members
+          .map((m: any) => evalByOfficer.get(m._id.toString()))
+          .filter(Boolean);
+        const submitted = memberEvals.filter((e: any) =>
+          [
+            'SUBMITTED',
+            'RESUBMITTED',
+            'UNDER_REVIEW',
+            'NEEDS_REVISION',
+            'APPROVED',
+            'FINALIZED',
+          ].includes(e.status)
+        ).length;
+        const approved = memberEvals.filter((e: any) =>
+          ['APPROVED', 'FINALIZED'].includes(e.status)
+        );
+        const avgCLPI =
+          approved.length > 0
+            ? Number(
+                (
+                  approved.reduce((s: number, e: any) => s + Number(e.finalClpiScore || 0), 0) /
+                  approved.length
+                ).toFixed(1)
+              )
+            : 0;
+
+        const pendingCount = submitted - approved.length;
+        return {
+          id: String(idx + 1),
+          name: unitName,
+          total: members.length,
+          submitted,
+          avgCLPI,
+          status:
+            members.length > 0 && approved.length === members.length
+              ? 'Hoàn thành'
+              : pendingCount > 0
+              ? `Chờ duyệt ${pendingCount}`
+              : 'Đang thực hiện',
+        };
+      });
 
       return {
-        cycleName: cycle.name,
+        cycleName: cycle?.name || '',
         stats: {
-          totalOfficers: 42,
-          submittedReports: 39,
-          approvedEvaluations: 34,
-          pendingReviews: 5,
-          averageCLPI: 87.2,
-          excellentRate: 28,
+          totalOfficers: users.length,
+          submittedReports: submittedEvaluations.length,
+          approvedEvaluations: approvedEvaluations.length,
+          pendingReviews: pendingReviews.length,
+          averageCLPI,
+          excellentRate,
         },
-        unitSummaries: [
-          { id: '1', name: 'Chi đoàn KTPM2025.1', total: 6, submitted: 6, avgCLPI: 89.4, status: 'Hoàn thành' },
-          { id: '2', name: 'Chi đoàn KTPM2024.1', total: 8, submitted: 8, avgCLPI: 88.1, status: 'Hoàn thành' },
-          { id: '3', name: 'Ban Học thuật', total: 10, submitted: 9, avgCLPI: 86.5, status: 'Chờ duyệt 1' },
-          { id: '4', name: 'Ban Phong trào', total: 9, submitted: 8, avgCLPI: 85.0, status: 'Chờ duyệt 1' },
-          { id: '5', name: 'CLB GamApp', total: 9, submitted: 8, avgCLPI: 87.8, status: 'Chờ duyệt 1' },
-        ],
+        unitSummaries,
       };
     } catch (e) {
       throw new InternalServerErrorException('Lỗi tải Admin Dashboard CLPI');
@@ -777,10 +1327,23 @@ export class ClpiService {
   async getIndicatorsConfig() {
     try {
       const { db } = await connectToDatabase();
-      const settings = await db.collection<any>(this.colSettings).findOne({ type: 'weights' });
+      const [settings, profiles] = await Promise.all([
+        db.collection(this.colSettings).findOne({ type: 'weights' }),
+        db
+          .collection(this.colSettings)
+          .find({ type: 'weight_profile' })
+          .sort({ createdAt: 1 })
+          .toArray(),
+      ]);
 
       return {
         weights: settings?.weights || { WPI: 40, LEI: 25, CEI: 20, SDI: 15 },
+        activeProfileId: settings?.activeProfileId || '',
+        profiles: profiles.map((p: any) => ({
+          id: p._id.toString(),
+          title: p.title,
+          weights: p.weights,
+        })),
         total: 100,
       };
     } catch (e) {
@@ -807,20 +1370,109 @@ export class ClpiService {
     }
   }
 
+  async createWeightProfile(dto: CreateWeightProfileDto) {
+    const total = dto.WPI + dto.LEI + dto.CEI + dto.SDI;
+    if (total !== 100) {
+      throw new BadRequestException(`Tổng trọng số phải bằng 100% (Hiện tại: ${total}%)`);
+    }
+
+    try {
+      const { db } = await connectToDatabase();
+      const doc = {
+        type: 'weight_profile',
+        title: dto.title.trim(),
+        weights: {
+          WPI: dto.WPI,
+          LEI: dto.LEI,
+          CEI: dto.CEI,
+          SDI: dto.SDI,
+        },
+        createdAt: new Date().toISOString(),
+      };
+      const res = await db.collection(this.colSettings).insertOne(doc);
+      return {
+        success: true,
+        id: res.insertedId.toString(),
+        title: doc.title,
+        weights: doc.weights,
+      };
+    } catch (e) {
+      throw new InternalServerErrorException('Lỗi tạo bộ trọng số mới');
+    }
+  }
+
+  async deleteWeightProfile(id: string) {
+    try {
+      const { db } = await connectToDatabase();
+      const res = await db
+        .collection(this.colSettings)
+        .deleteOne({ ...this.buildIdFilter(id), type: 'weight_profile' });
+      if (res.deletedCount === 0) {
+        throw new NotFoundException('Không tìm thấy bộ trọng số để xóa');
+      }
+      return { success: true, message: 'Đã xóa bộ trọng số' };
+    } catch (e) {
+      if (e instanceof NotFoundException) throw e;
+      throw new InternalServerErrorException('Lỗi xóa bộ trọng số');
+    }
+  }
+
+  async updatePersonnel(id: string, dto: UpdatePersonnelDto) {
+    try {
+      const { db } = await connectToDatabase();
+      const filter = this.buildIdFilter(id);
+
+      const updateFields: any = { updatedAt: new Date() };
+      if (dto.code !== undefined) updateFields.student_id = dto.code;
+      if (dto.name !== undefined) updateFields.full_name = dto.name;
+      if (dto.position !== undefined) {
+        updateFields.position = dto.position;
+        updateFields.positions = dto.position
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+      if (dto.unit !== undefined) updateFields.class = dto.unit;
+      if (dto.role !== undefined) updateFields.clpiRole = dto.role;
+
+      const res = await db.collection(this.colUsers).updateOne(filter, { $set: updateFields });
+      if (res.matchedCount === 0) {
+        throw new NotFoundException('Không tìm thấy cán bộ để cập nhật');
+      }
+
+      return { success: true, message: 'Đã cập nhật thông tin và vai trò CLPI' };
+    } catch (e) {
+      if (e instanceof NotFoundException) throw e;
+      throw new InternalServerErrorException('Lỗi cập nhật thông tin cán bộ');
+    }
+  }
+
   async getPersonnel() {
     try {
       const { db } = await connectToDatabase();
-      const list = await db.collection<any>(this.colPersonnel).find().toArray();
-      if (list.length === 0) {
-        return [
-          { id: '1', code: 'CB-2025-014', name: 'Nguyễn Văn A', position: 'Bí thư Chi đoàn', unit: 'Chi đoàn KTPM2025.1', role: 'Unit Manager' },
-          { id: '2', code: 'CB-2024-002', name: 'Trần Thị B', position: 'Trưởng Ban', unit: 'Ban Học thuật', role: 'Reviewer' },
-          { id: '3', code: 'CB-2025-089', name: 'Lê Hoàng C', position: 'Chủ nhiệm CLB', unit: 'CLB GamApp', role: 'Unit Manager' },
-          { id: '4', code: 'CB-2024-055', name: 'Phạm Minh D', position: 'Phó Bí thư Đoàn Khoa', unit: 'BTV Đoàn Khoa', role: 'CLPI Admin' },
-          { id: '5', code: 'CB-2025-102', name: 'Võ Thị F', position: 'Ủy viên BCH', unit: 'Chi đoàn KTPM2025.1', role: 'Officer' },
-        ];
-      }
-      return list.map(p => ({ ...p, id: p._id.toString() }));
+      const users: any[] = await db.collection(this.colUsers).find({}).toArray();
+
+      return users.map((u: any) => {
+        const positions: string[] = Array.isArray(u.positions)
+          ? u.positions.filter(Boolean)
+          : u.position || u.chuc_vu
+          ? String(u.position || u.chuc_vu)
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
+
+        return {
+          id: u._id.toString(),
+          _id: u._id.toString(),
+          code: u.student_id || u.mssv || '',
+          name: u.full_name || u.name || '',
+          position: positions.join(', '),
+          positions,
+          unit: u.class || '',
+          role: u.clpiRole || 'Officer',
+        };
+      });
     } catch (e) {
       throw new InternalServerErrorException('Lỗi tải danh sách nhân sự');
     }
@@ -829,9 +1481,17 @@ export class ClpiService {
   async createPersonnel(dto: CreatePersonnelDto) {
     try {
       const { db } = await connectToDatabase();
-      const res = await db.collection(this.colPersonnel).insertOne({
-        ...dto,
-        createdAt: new Date().toISOString(),
+      const res = await db.collection(this.colUsers).insertOne({
+        student_id: dto.code,
+        full_name: dto.name,
+        position: dto.position,
+        positions: dto.position
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        class: dto.unit,
+        clpiRole: dto.role,
+        createdAt: new Date(),
       });
       return { success: true, id: res.insertedId.toString() };
     } catch (e) {
@@ -841,20 +1501,59 @@ export class ClpiService {
 
   async getAnalytics() {
     try {
+      const { db } = await connectToDatabase();
+      const cycle = await this.getCurrentCycle();
+      const cycleId = cycle ? cycle.id || cycle._id.toString() : '';
+
+      const finalizedQuery: any = { status: { $in: ['APPROVED', 'FINALIZED'] } };
+      if (cycleId) finalizedQuery.cycleId = cycleId;
+
+      const topDocs: any[] = await db
+        .collection(this.colEvaluations)
+        .find(finalizedQuery)
+        .sort({ finalClpiScore: -1 })
+        .limit(5)
+        .toArray();
+
+      const topOfficers = topDocs.map((d: any) => ({
+        name: d.fullName || '',
+        unit: d.unitName || d.unitBranch || '',
+        score: Number(d.finalClpiScore || 0),
+      }));
+
+      const allCycles: any[] = await db
+        .collection(this.colCycles)
+        .find({})
+        .sort({ year: 1, createdAt: 1 })
+        .toArray();
+
+      const quarterTrends: { quarter: string; score: number }[] = [];
+      for (const c of allCycles) {
+        const cId = c._id.toString();
+        const evals: any[] = await db
+          .collection(this.colEvaluations)
+          .find({ cycleId: cId, status: { $in: ['APPROVED', 'FINALIZED'] } })
+          .toArray();
+
+        const avg =
+          evals.length > 0
+            ? Number(
+                (
+                  evals.reduce((s: number, e: any) => s + Number(e.finalClpiScore || 0), 0) /
+                  evals.length
+                ).toFixed(1)
+              )
+            : 0;
+
+        quarterTrends.push({
+          quarter: `${c.quarter || ''}/${c.year || ''}`.replace(/^\/|\/$/g, '') || c.name,
+          score: avg,
+        });
+      }
+
       return {
-        topOfficers: [
-          { name: 'Nguyễn Văn A', unit: 'Chi đoàn KTPM2025.1', score: 94.2 },
-          { name: 'Phạm Minh D', unit: 'Chi đoàn KTPM2024.2', score: 93.8 },
-          { name: 'Trần Thị B', unit: 'Ban Học thuật', score: 92.5 },
-          { name: 'Lê Hoàng C', unit: 'CLB GamApp', score: 91.0 },
-          { name: 'Võ Thị F', unit: 'Chi đoàn KTPM2025.1', score: 89.8 },
-        ],
-        quarterTrends: [
-          { quarter: 'Q3/2025', score: 84.5 },
-          { quarter: 'Q4/2025', score: 85.8 },
-          { quarter: 'Q1/2026', score: 86.4 },
-          { quarter: 'Q2/2026', score: 87.2 },
-        ],
+        topOfficers,
+        quarterTrends,
       };
     } catch (e) {
       throw new InternalServerErrorException('Lỗi tải thống kê thi đua');

@@ -1,20 +1,39 @@
-import { 
-  Controller, Get, Post, Put, Delete, Body, Param, 
-  Query, Req, UseInterceptors, UploadedFile 
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Req,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ClpiService } from './clpi.service';
-import { 
-  UpdateTaskProgressDto, CreateEvidenceDto, SaveMonthlyReportDraftDto, 
-  SubmitMonthlyReportDto, SubmitSelfAssessmentDto, RequestRevisionDto, ApproveEvaluationDto,
-  CreateCycleDto, UpdateWeightsDto, CreatePersonnelDto 
+import {
+  CreateClpiTaskDto,
+  UpdateClpiTaskDto,
+  UpdateTaskProgressDto,
+  CreateEvidenceDto,
+  SaveMonthlyReportDraftDto,
+  SubmitMonthlyReportDto,
+  SubmitSelfAssessmentDto,
+  RequestRevisionDto,
+  ApproveEvaluationDto,
+  CreateCycleDto,
+  UpdateWeightsDto,
+  CreatePersonnelDto,
+  UpdatePersonnelDto,
+  CreateWeightProfileDto,
 } from './clpi.dto';
 
 @Controller('clpi')
 export class ClpiController {
   constructor(private readonly clpiService: ClpiService) {}
 
-  // 1. Chu kỳ CLPI
   @Get('cycles/current')
   async getCurrentCycle() {
     return this.clpiService.getCurrentCycle();
@@ -35,13 +54,26 @@ export class ClpiController {
     return this.clpiService.lockCycle(id);
   }
 
-  // 2. Dashboard cán bộ
+  @Delete('cycles/:id')
+  async deleteCycle(@Param('id') id: string) {
+    return this.clpiService.deleteCycle(id);
+  }
+
   @Get('dashboard')
   async getDashboard(@Req() req: any) {
     return this.clpiService.getDashboard(req);
   }
 
-  // 3. Quản lý công việc & Minh chứng
+  @Get('tasks/manage')
+  async getManagedTasks() {
+    return this.clpiService.getManagedTasks();
+  }
+
+  @Post('tasks')
+  async createTask(@Body() dto: CreateClpiTaskDto, @Req() req: any) {
+    return this.clpiService.createTask(dto, req);
+  }
+
   @Get('tasks')
   async getTasks(@Req() req: any) {
     return this.clpiService.getTasks(req);
@@ -50,6 +82,11 @@ export class ClpiController {
   @Get('tasks/:taskId')
   async getTaskDetail(@Param('taskId') taskId: string) {
     return this.clpiService.getTaskDetail(taskId);
+  }
+
+  @Put('tasks/:taskId')
+  async updateTask(@Param('taskId') taskId: string, @Body() dto: UpdateClpiTaskDto) {
+    return this.clpiService.updateTask(taskId, dto);
   }
 
   @Put('tasks/:taskId/progress')
@@ -76,7 +113,6 @@ export class ClpiController {
     return this.clpiService.deleteEvidence(id);
   }
 
-  // 4. Báo cáo công tác tháng
   @Get('monthly-reports/current')
   async getCurrentMonthlyReport(@Req() req: any) {
     return this.clpiService.getCurrentMonthlyReport(req);
@@ -100,17 +136,13 @@ export class ClpiController {
     return this.clpiService.submitMonthlyReport(id, dto, req);
   }
 
-  // 5. Tự đánh giá & Hồ sơ CLPI
   @Get('self-assessment/current')
   async getSelfAssessment(@Req() req: any) {
     return this.clpiService.getSelfAssessment(req);
   }
 
   @Post('self-assessment/submit')
-  async submitSelfAssessment(
-    @Body() dto: SubmitSelfAssessmentDto,
-    @Req() req: any
-  ) {
+  async submitSelfAssessment(@Body() dto: SubmitSelfAssessmentDto, @Req() req: any) {
     return this.clpiService.submitSelfAssessment(dto, req);
   }
 
@@ -124,7 +156,6 @@ export class ClpiController {
     return this.clpiService.getEvaluationDetail(id, req);
   }
 
-  // 6. Reviewer / Thẩm định hồ sơ
   @Get('review/queue')
   async getReviewQueue(@Req() req: any) {
     return this.clpiService.getReviewQueue(req);
@@ -153,19 +184,16 @@ export class ClpiController {
     return this.clpiService.approveEvaluation(id, dto, req);
   }
 
-  // 7. Bảng điều khiển Đơn vị
   @Get('unit-dashboard')
   async getUnitDashboard(@Query('unitId') unitId?: string) {
     return this.clpiService.getUnitDashboard(unitId);
   }
 
-  // 8. Bảng điều khiển BTV toàn khoa
   @Get('admin-dashboard')
   async getAdminDashboard() {
     return this.clpiService.getAdminDashboard();
   }
 
-  // 9. Cấu hình Bộ chỉ số & Trọng số
   @Get('indicators')
   async getIndicatorsConfig() {
     return this.clpiService.getIndicatorsConfig();
@@ -176,7 +204,16 @@ export class ClpiController {
     return this.clpiService.updateWeights(dto);
   }
 
-  // 10. Quản lý nhân sự
+  @Post('indicators/profiles')
+  async createWeightProfile(@Body() dto: CreateWeightProfileDto) {
+    return this.clpiService.createWeightProfile(dto);
+  }
+
+  @Delete('indicators/profiles/:id')
+  async deleteWeightProfile(@Param('id') id: string) {
+    return this.clpiService.deleteWeightProfile(id);
+  }
+
   @Get('personnel')
   async getPersonnel() {
     return this.clpiService.getPersonnel();
@@ -187,7 +224,11 @@ export class ClpiController {
     return this.clpiService.createPersonnel(dto);
   }
 
-  // 11. Báo cáo & Thống kê
+  @Put('personnel/:id')
+  async updatePersonnel(@Param('id') id: string, @Body() dto: UpdatePersonnelDto) {
+    return this.clpiService.updatePersonnel(id, dto);
+  }
+
   @Get('analytics')
   async getAnalytics() {
     return this.clpiService.getAnalytics();
